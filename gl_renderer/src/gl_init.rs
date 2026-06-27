@@ -4,7 +4,7 @@
 //! loads the raw `glMultiDrawElementsIndirect` entry point. Enables GL debug
 //! output in debug builds.
 
-use crate::renderer::MultiDrawElementsIndirectFn;
+use crate::renderer::{MultiDrawElementsIndirectCountFn, MultiDrawElementsIndirectFn};
 
 use glow::{Context, HasContext};
 use glutin::{
@@ -22,14 +22,15 @@ use raw_window_handle::HasRawWindowHandle;
 use winit::{dpi::LogicalSize, event_loop::EventLoop, window::Window, window::WindowBuilder};
 
 /// Everything a host needs to render: the window, the current GL surface and
-/// context, the `glow::Context`, the loaded MDI entry point, and the chosen config.
+/// context, the `glow::Context`, the loaded MDI entry points, and the chosen config.
 pub struct GlWindow {
-    pub window:    Window,
-    pub surface:   Surface<WindowSurface>,
-    pub context:   PossiblyCurrentContext,
-    pub gl:        Context,
-    pub mdi:       MultiDrawElementsIndirectFn,
-    pub gl_config: glutin::config::Config,
+    pub window:     Window,
+    pub surface:    Surface<WindowSurface>,
+    pub context:    PossiblyCurrentContext,
+    pub gl:         Context,
+    pub mdi:        MultiDrawElementsIndirectFn,
+    pub mdi_count:  MultiDrawElementsIndirectCountFn,
+    pub gl_config:  glutin::config::Config,
 }
 
 /// Build a window and a current OpenGL 4.3 context for `event_loop`.
@@ -60,7 +61,7 @@ pub fn create_gl_window(
     let window: Window = window.expect("window creation failed");
 
     let context_attrs = ContextAttributesBuilder::new()
-        .with_context_api(ContextApi::OpenGl(Some(Version::new(4, 3))))
+        .with_context_api(ContextApi::OpenGl(Some(Version::new(4, 6))))
         .with_debug(cfg!(debug_assertions))
         .build(Some(window.raw_window_handle()));
 
@@ -99,6 +100,15 @@ pub fn create_gl_window(
         std::mem::transmute::<*const std::ffi::c_void, MultiDrawElementsIndirectFn>(ptr)
     };
 
+    // glMultiDrawElementsIndirectCount reads the draw count from a GPU buffer.
+    // Core since GL 4.6 (ARB_indirect_parameters).
+    let mdi_count: MultiDrawElementsIndirectCountFn = unsafe {
+        let name = std::ffi::CString::new("glMultiDrawElementsIndirectCount").unwrap();
+        let ptr  = gl_config.display().get_proc_address(name.as_c_str());
+        assert!(!ptr.is_null(), "glMultiDrawElementsIndirectCount unavailable (need GL 4.6)");
+        std::mem::transmute::<*const std::ffi::c_void, MultiDrawElementsIndirectCountFn>(ptr)
+    };
+
     // Optional GL debug output in debug builds.
     //
     // Async by default: `DEBUG_OUTPUT_SYNCHRONOUS` makes the driver invoke the
@@ -121,5 +131,5 @@ pub fn create_gl_window(
         }
     }
 
-    GlWindow { window, surface, context, gl, mdi, gl_config }
+    GlWindow { window, surface, context, gl, mdi, mdi_count, gl_config }
 }

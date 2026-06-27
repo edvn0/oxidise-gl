@@ -22,3 +22,4 @@ bytemuck = { version = "1.14", features = ["derive"] }
 glam = "0.25"
 half = "2.3"
 hecs = "0.10"
+indexmap = "2"

@@ -8,7 +8,7 @@
 
 mod scripting;
 
-use gl_renderer::{Mesh, MeshAlloc, Name, Script, Transform};
+use gl_renderer::{BoundingSphere, Mesh, MeshAlloc, Name, Script, Transform};
 use glam::Vec3;
 use hecs::World;
 use std::time::Instant;
@@ -21,6 +21,7 @@ fn fake_alloc(vertex_offset: u32) -> MeshAlloc {
         vertex_count: 24,
         index_offset: vertex_offset * 3,
         index_count: 36,
+        bounding_sphere: BoundingSphere { center: [0.0; 3], radius: 1.0 },
     }
 }
 

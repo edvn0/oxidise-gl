@@ -9,8 +9,8 @@
 mod scripting;
 
 use gl_renderer::{
-    create_gl_window, generate_cube, generate_sphere, GlWindow, Mesh, MeshAlloc, Name,
-    OffscreenTarget, Renderer, Script, Transform,
+    create_gl_window, generate_cube, generate_sphere, GlWindow, GpuMaterial, Material, Mesh,
+    MeshAlloc, Name, OffscreenTarget, PipelineStats, Renderer, Script, Transform,
 };
 
 use glam::{Mat4, Vec3};
@@ -70,6 +70,16 @@ fn spawn_cube(world: &mut World, mesh: MeshAlloc, name: &str) -> Entity {
     ))
 }
 
+fn fmt_count(n: u64) -> String {
+    if n >= 1_000_000 {
+        format!("{:.1}M", n as f64 / 1_000_000.0)
+    } else if n >= 1_000 {
+        format!("{:.1}K", n as f64 / 1_000.0)
+    } else {
+        n.to_string()
+    }
+}
+
 fn main() {
     // Register the built-in `gl_renderer` Python module before Python initialises.
     // append_to_inittab! requires a bare ident, not a path.
@@ -77,15 +87,17 @@ fn main() {
     pyo3::append_to_inittab!(py_module);
 
     let event_loop = EventLoop::new().expect("failed to create event loop");
-    let GlWindow { window, surface, context, gl, mdi, .. } =
+    let GlWindow { window, surface, context, gl, mdi_count, .. } =
         create_gl_window(&event_loop, "gl_renderer editor", 1600, 900);
 
     // ── Engine renderer + scene ─────────────────────────────────────────────
-    let mut renderer = unsafe { Renderer::new(&gl, mdi) };
+    let mut renderer = unsafe { Renderer::new(&gl, mdi_count) };
     let (cv, ci) = generate_cube();
     let cube = unsafe { renderer.upload_mesh(&gl, &cv, &ci) };
     let (sv, si) = generate_sphere(24, 32);
     let sphere = unsafe { renderer.upload_mesh(&gl, &sv, &si) };
+    // Index 0 (DEFAULT) is the only static material; seal so the editor can add overrides.
+    renderer.seal_static_materials();
 
     let mut world = World::new();
     world.spawn((
@@ -129,7 +141,7 @@ fn main() {
     let mut selected: Option<Entity> = None;
     let start = Instant::now();
     let mut last_frame = Instant::now();
-    let mut draw_count = 0usize;
+    let mut stats = PipelineStats::default();
 
     event_loop
         .run(move |event, elwt| {
@@ -242,16 +254,21 @@ fn main() {
 
                             let entities: Vec<Entity> =
                                 world.query::<&Mesh>().iter().map(|(e, _)| e).collect();
-                            for e in entities {
-                                let label = world
-                                    .get::<&Name>(e)
-                                    .map(|n| n.0.clone())
-                                    .unwrap_or_else(|_| format!("Entity {}", e.id()));
-                                if ui.selectable_config(format!("{label}##{}", e.id()))
-                                    .selected(selected == Some(e))
-                                    .build()
-                                {
-                                    selected = Some(e);
+                            let mut clipper = imgui::ListClipper::new(entities.len() as i32)
+                                .begin(ui);
+                            while clipper.step() {
+                                for i in clipper.display_start()..clipper.display_end() {
+                                    let e = entities[i as usize];
+                                    let label = world
+                                        .get::<&Name>(e)
+                                        .map(|n| n.0.clone())
+                                        .unwrap_or_else(|_| format!("Entity {}", e.id()));
+                                    if ui.selectable_config(format!("{label}##{}", e.id()))
+                                        .selected(selected == Some(e))
+                                        .build()
+                                    {
+                                        selected = Some(e);
+                                    }
                                 }
                             }
 
@@ -289,6 +306,58 @@ fn main() {
 
                                 ui.separator();
 
+                                // ── Material ──────────────────────────────────
+                                {
+                                    let mat_idx = world.get::<&Material>(sel).ok().map(|m| m.0);
+                                    let effective_idx = mat_idx.unwrap_or(0);
+                                    let is_override = renderer.is_override_material(effective_idx);
+                                    let current_mat = renderer.material(effective_idx).copied();
+
+                                    ui.text("Material");
+                                    if is_override {
+                                        ui.text_disabled(format!("Override #{effective_idx}"));
+                                        if let Some(mat) = current_mat {
+                                            let mut color     = mat.base_color;
+                                            let mut roughness = mat.roughness;
+                                            let mut metallic  = mat.metallic;
+
+                                            let mut changed = false;
+                                            changed |= ui.color_edit4("Base Color##mat", &mut color);
+                                            changed |= ui.slider("Roughness##mat", 0.0f32, 1.0f32, &mut roughness);
+                                            changed |= ui.slider("Metallic##mat",  0.0f32, 1.0f32, &mut metallic);
+
+                                            if changed {
+                                                let updated = GpuMaterial {
+                                                    base_color: color,
+                                                    roughness,
+                                                    metallic,
+                                                    _pad: [0.0; 2],
+                                                };
+                                                unsafe { renderer.update_override_material(&gl, effective_idx, updated); }
+                                            }
+                                        }
+                                        if ui.button("Reset to Default##mat") {
+                                            let _ = world.remove::<(Material,)>(sel);
+                                        }
+                                    } else {
+                                        if let Some(mat) = current_mat {
+                                            ui.text_disabled(format!("Static #{effective_idx}"));
+                                            let [r, g, b, _] = mat.base_color;
+                                            ui.text(format!("Color   {r:.2}  {g:.2}  {b:.2}"));
+                                            ui.text(format!("Rough   {:.2}   Metal  {:.2}", mat.roughness, mat.metallic));
+                                        }
+                                        if ui.button("Override##mat") {
+                                            let base = renderer.material(effective_idx)
+                                                .copied()
+                                                .unwrap_or(GpuMaterial::DEFAULT);
+                                            let new_idx = unsafe { renderer.add_override_material(&gl, base) };
+                                            let _ = world.insert(sel, (Material(new_idx),));
+                                        }
+                                    }
+                                }
+
+                                ui.separator();
+
                                 // Script component
                                 let cur_script = world
                                     .get::<&Script>(sel)
@@ -313,11 +382,17 @@ fn main() {
                     // ── Stats ────────────────────────────────────────────────
                     ui.window("Stats")
                         .position([0.0, 556.0], Condition::FirstUseEver)
-                        .size([240.0, 140.0], Condition::FirstUseEver)
+                        .size([240.0, 190.0], Condition::FirstUseEver)
                         .build(|| {
-                            ui.text(format!("FPS:     {:.0}", ui.io().framerate));
-                            ui.text(format!("Draws:   {draw_count}"));
-                            ui.text(format!("Entities:{}", world.len()));
+                            ui.text(format!("FPS          {:.0}", ui.io().framerate));
+                            ui.separator();
+                            ui.text(format!("Entities     {}", stats.entities));
+                            ui.text(format!("Batches      {}", stats.batches));
+                            ui.separator();
+                            ui.text(format!("Triangles    {}", fmt_count(stats.primitives_submitted)));
+                            ui.text(format!("Vert inv     {}", fmt_count(stats.vertex_invocations)));
+                            ui.text(format!("Frag inv     {}", fmt_count(stats.fragment_invocations)));
+                            ui.text(format!("GPU ms       {:.2}", stats.gpu_time_ms));
                         });
 
                     // ── Script update (mutates world before rendering) ────────
@@ -339,7 +414,7 @@ fn main() {
                                 let proj =
                                     Mat4::perspective_rh_gl(45_f32.to_radians(), aspect, 0.1, 100.0);
                                 let view = Mat4::look_at_rh(EYE, Vec3::ZERO, Vec3::Y);
-                                draw_count =
+                                stats =
                                     renderer.render(&gl, &world, proj * view, elapsed, vw, vh);
                             }
                             // GL textures are bottom-up; flip V so the image is upright.

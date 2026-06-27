@@ -31,6 +31,11 @@ pub struct Mesh(pub MeshAlloc);
 #[derive(Clone, Debug)]
 pub struct Name(pub String);
 
+/// Material override: index into the renderer's material SSBO.
+/// Entities without this component use the default material at index 0.
+#[derive(Clone, Copy, Debug)]
+pub struct Material(pub u32);
+
 /// Attaches a Python script to an entity. The path is relative to the working
 /// directory (e.g. `"scripts/orbit.py"`). The script host calls
 /// `on_update(entity, scene, t, dt)` on this entity every frame.

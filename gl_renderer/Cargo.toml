@@ -17,3 +17,4 @@ bytemuck = { workspace = true }
 glam = { workspace = true }
 half = { workspace = true }
 hecs = { workspace = true }
+indexmap = { workspace = true }

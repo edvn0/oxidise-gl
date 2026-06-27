@@ -1,0 +1,83 @@
+#version 460 core
+
+layout(local_size_x = 64) in;
+
+struct DrawCommand {
+    uint count;
+    uint instance_count;
+    uint first_index;
+    uint base_vertex;
+    uint base_instance;
+};
+
+struct InstanceData {
+    mat4 model;
+    mat4 normal;
+    uint material_index;
+    uint _pad0;
+    uint _pad1;
+    uint _pad2;
+};
+
+// Source instance data: one per entity.
+layout(std430, binding = 0) readonly buffer SourceInstances {
+    InstanceData instances[];
+};
+
+// Model-space bounding spheres: xyz = center, w = radius. One per entity.
+layout(std430, binding = 1) readonly buffer BoundingSpheres {
+    vec4 bounding_spheres[];
+};
+
+// Per-entity batch index: maps entity id to its unique-mesh batch slot.
+layout(std430, binding = 2) readonly buffer BatchIndex {
+    uint batch_index[];
+};
+
+// Draw commands (one per unique mesh). instance_count is atomicAdd'd by this shader;
+// vertex/index fields are pre-filled by the CPU and left untouched.
+layout(std430, binding = 3) buffer CulledCommands {
+    DrawCommand culled_cmds[];
+};
+
+// Compacted visible instance data written by this shader, read by the vertex shader.
+layout(std430, binding = 4) writeonly buffer CulledInstances {
+    InstanceData culled_instances[];
+};
+
+// Per-batch starting offset into culled_instances (prefix sum of batch sizes).
+layout(std430, binding = 5) readonly buffer BatchBase {
+    uint batch_base[];
+};
+
+layout(location = 0) uniform uint u_total_draws;
+// World-space frustum planes (Gribb-Hartmann). Each vec4 is (nx, ny, nz, d);
+// a point p is inside if dot(plane.xyz, p) + plane.w >= 0.
+layout(location = 1) uniform vec4 u_frustum_planes[6];
+
+bool sphere_in_frustum(vec4 sphere_model, mat4 model) {
+    vec3 center = (model * vec4(sphere_model.xyz, 1.0)).xyz;
+    float sx = length(model[0].xyz);
+    float sy = length(model[1].xyz);
+    float sz = length(model[2].xyz);
+    float radius = sphere_model.w * max(sx, max(sy, sz));
+    for (int i = 0; i < 6; ++i) {
+        if (dot(u_frustum_planes[i].xyz, center) + u_frustum_planes[i].w < -radius)
+            return false;
+    }
+    return true;
+}
+
+void main() {
+    uint id = gl_GlobalInvocationID.x;
+    if (id >= u_total_draws) return;
+
+    uint b      = batch_index[id];
+    vec4 sphere = bounding_spheres[id];
+    mat4 model  = instances[id].model;
+
+    if (sphere_in_frustum(sphere, model)) {
+        uint slot = atomicAdd(culled_cmds[b].instance_count, 1u);
+        culled_instances[batch_base[b] + slot] = instances[id];
+    }
+}

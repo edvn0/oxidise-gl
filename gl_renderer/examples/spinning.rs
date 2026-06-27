@@ -25,9 +25,9 @@ fn main() {
         1280,
         720,
     );
-    let gl_renderer::GlWindow { window, surface, context, gl, mdi, .. } = gl_window;
+    let gl_renderer::GlWindow { window, surface, context, gl, mdi_count, .. } = gl_window;
 
-    let mut renderer = unsafe { Renderer::new(&gl, mdi) };
+    let mut renderer = unsafe { Renderer::new(&gl, mdi_count) };
 
     // Upload the two meshes into the shared arena.
     let (cube_verts, cube_idx) = generate_cube();
