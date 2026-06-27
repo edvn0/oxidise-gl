@@ -1,0 +1,24 @@
+[workspace]
+resolver = "2"
+members = ["gl_renderer", "editor"]
+
+# Optimize dependencies even in debug builds. glam math, glow, imgui's per-frame
+# vertex generation, etc. are painfully slow at opt-level 0. Workspace crates stay
+# unoptimized (fast incremental builds, full debuggability); deps compile once and
+# are cached, so this only costs the first build.
+[profile.dev.package."*"]
+opt-level = 3
+
+[profile.dev]
+opt-level = 1
+
+[workspace.dependencies]
+winit = { version = "0.29", features = ["rwh_05"] }
+glutin = "0.31"
+glutin-winit = "0.4"
+glow = "0.13"
+raw-window-handle = "0.5"
+bytemuck = { version = "1.14", features = ["derive"] }
+glam = "0.25"
+half = "2.3"
+hecs = "0.10"

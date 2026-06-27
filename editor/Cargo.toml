@@ -1,0 +1,19 @@
+[package]
+name = "editor"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "editor"
+path = "src/main.rs"
+
+[dependencies]
+gl_renderer = { path = "../gl_renderer" }
+imgui = { version = "0.12", features = ["docking"] }
+imgui-winit-support = "0.12"
+imgui-glow-renderer = "0.12"
+winit = { workspace = true }
+glutin = { workspace = true }
+glow = { workspace = true }
+glam = { workspace = true }
+hecs = { workspace = true }
