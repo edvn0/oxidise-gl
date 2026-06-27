@@ -7,8 +7,15 @@ edition = "2021"
 name = "editor"
 path = "src/main.rs"
 
+[[bin]]
+name = "stress"
+path = "src/stress.rs"
+
 [dependencies]
 gl_renderer = { path = "../gl_renderer" }
+pyo3  = { version = "0.22", features = ["auto-initialize"] }
+lru   = "0.12"
+rayon = "1"
 imgui = { version = "0.12", features = ["docking"] }
 imgui-winit-support = "0.12"
 imgui-glow-renderer = "0.12"

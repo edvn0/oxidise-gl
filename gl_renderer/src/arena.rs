@@ -97,10 +97,10 @@ pub struct GpuArena {
 }
 
 impl GpuArena {
-    /// Create the arena with `max_vertices` and `max_indices` capacity.
-    pub unsafe fn new(gl: &Context, max_vertices: usize, max_indices: usize) -> Self {
-        let vertex_buf = GlBuffer::new(gl, max_vertices, BufferUsage::StaticDraw);
-        let index_buf  = GlBuffer::new(gl, max_indices,  BufferUsage::StaticDraw);
+    /// Create the arena with the given initial capacities. Both buffers grow automatically.
+    pub unsafe fn new(gl: &Context, initial_vertices: usize, initial_indices: usize) -> Self {
+        let vertex_buf = GlBuffer::new(gl, initial_vertices, BufferUsage::DynamicDraw);
+        let index_buf  = GlBuffer::new(gl, initial_indices,  BufferUsage::DynamicDraw);
         Self {
             vertex_buf,
             index_buf,
@@ -109,7 +109,24 @@ impl GpuArena {
         }
     }
 
+    unsafe fn ensure_vertex_capacity(&mut self, gl: &Context, needed: usize) {
+        let required = self.next_vertex as usize + needed;
+        if required > self.vertex_buf.capacity {
+            let new_cap = (self.vertex_buf.capacity * 2).max(required);
+            self.vertex_buf.grow(gl, new_cap, BufferUsage::DynamicDraw);
+        }
+    }
+
+    unsafe fn ensure_index_capacity(&mut self, gl: &Context, needed: usize) {
+        let required = self.next_index as usize + needed;
+        if required > self.index_buf.capacity {
+            let new_cap = (self.index_buf.capacity * 2).max(required);
+            self.index_buf.grow(gl, new_cap, BufferUsage::DynamicDraw);
+        }
+    }
+
     /// Push vertices and (local, 0-based) indices into the arena.
+    /// Grows the underlying GPU buffers if necessary (2× doubling strategy).
     /// Returns a `MeshAlloc` describing the allocated ranges.
     pub unsafe fn push_mesh(
         &mut self,
@@ -117,6 +134,9 @@ impl GpuArena {
         vertices: &[PackedVertex],
         indices: &[u32],
     ) -> MeshAlloc {
+        self.ensure_vertex_capacity(gl, vertices.len());
+        self.ensure_index_capacity(gl, indices.len());
+
         let v_offset = self.next_vertex;
         let i_offset = self.next_index;
 

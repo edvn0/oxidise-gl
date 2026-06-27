@@ -30,3 +30,9 @@ pub struct Mesh(pub MeshAlloc);
 /// without one fall back to their `Entity` id.
 #[derive(Clone, Debug)]
 pub struct Name(pub String);
+
+/// Attaches a Python script to an entity. The path is relative to the working
+/// directory (e.g. `"scripts/orbit.py"`). The script host calls
+/// `on_update(entity, scene, t, dt)` on this entity every frame.
+#[derive(Clone, Debug)]
+pub struct Script(pub String);

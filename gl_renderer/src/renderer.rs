@@ -55,7 +55,12 @@ impl Renderer {
         );
 
         gl.enable(glow::DEPTH_TEST);
-        gl.depth_func(glow::LESS);
+        // Reverse-Z: near plane → depth 1.0, far plane → depth 0.0.
+        // Float precision is concentrated near 0.0, which is now the far end —
+        // dramatically reduces z-fighting for distant objects.
+        gl.depth_func(glow::GREATER);
+        gl.clear_depth_f32(0.0);
+        gl.depth_range_f32(1.0, 0.0);
         gl.enable(glow::CULL_FACE);
         gl.cull_face(glow::BACK);
         gl.clear_color(0.08, 0.10, 0.14, 1.0);
@@ -103,7 +108,7 @@ impl Renderer {
     /// `elapsed_secs` animates the transforms; `view_proj` is the camera matrix.
     /// Returns the number of draws issued.
     pub unsafe fn render(
-        &self,
+        &mut self,
         gl: &Context,
         world: &hecs::World,
         view_proj: Mat4,
@@ -133,6 +138,13 @@ impl Renderer {
                 normal: normal.to_cols_array(),
             });
             commands.push(mesh.0.draw_command(draw_id));
+        }
+
+        // Grow per-frame buffers if this frame has more draws than capacity.
+        if instances.len() > self.instance_buf.capacity {
+            let new_cap = (self.instance_buf.capacity * 2).max(instances.len());
+            self.instance_buf.grow(gl, new_cap, BufferUsage::DynamicDraw);
+            self.indirect_buf.grow(gl, new_cap, BufferUsage::DynamicDraw);
         }
 
         // Upload + bind per-frame buffers: instance SSBO at binding 1, then the

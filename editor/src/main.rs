@@ -6,9 +6,11 @@
 //! an imgui dockspace, so panels can be rearranged and the layout persists in
 //! `imgui.ini`.
 
+mod scripting;
+
 use gl_renderer::{
     create_gl_window, generate_cube, generate_sphere, GlWindow, Mesh, MeshAlloc, Name,
-    OffscreenTarget, Renderer, Transform,
+    OffscreenTarget, Renderer, Script, Transform,
 };
 
 use glam::{Mat4, Vec3};
@@ -29,6 +31,32 @@ use winit::{
 /// Camera eye position (fixed for v1).
 const EYE: Vec3 = Vec3::new(4.5, 3.0, 5.5);
 
+fn spawn_bulk(world: &mut World, cube: MeshAlloc, sphere: MeshAlloc, n: usize) {
+    let base = world.query::<&Mesh>().iter().count();
+    // Distribute n entities along a helix so they don't all overlap.
+    let turns = (n as f32 / 50.0).max(1.0);
+    for i in 0..n {
+        let t = i as f32 / n as f32;
+        let a = t * turns * std::f32::consts::TAU;
+        let r = 1.0 + t * 8.0;
+        let y = t * 6.0 - 3.0;
+        world.spawn((
+            Transform {
+                position: Vec3::new(a.cos() * r, y, a.sin() * r),
+                rotation_axis: Vec3::new(
+                    (i as f32 * 0.37).sin(),
+                    1.0,
+                    (i as f32 * 0.71).cos(),
+                ).normalize(),
+                rotation_speed: 0.05 + (i % 13) as f32 * 0.04,
+                scale: 0.08,
+            },
+            Mesh(if i % 3 == 0 { cube } else { sphere }),
+            Name(format!("bulk_{}", base + i)),
+        ));
+    }
+}
+
 fn spawn_cube(world: &mut World, mesh: MeshAlloc, name: &str) -> Entity {
     world.spawn((
         Transform {
@@ -43,6 +71,11 @@ fn spawn_cube(world: &mut World, mesh: MeshAlloc, name: &str) -> Entity {
 }
 
 fn main() {
+    // Register the built-in `gl_renderer` Python module before Python initialises.
+    // append_to_inittab! requires a bare ident, not a path.
+    use scripting::py_module;
+    pyo3::append_to_inittab!(py_module);
+
     let event_loop = EventLoop::new().expect("failed to create event loop");
     let GlWindow { window, surface, context, gl, mdi, .. } =
         create_gl_window(&event_loop, "gl_renderer editor", 1600, 900);
@@ -86,6 +119,11 @@ fn main() {
     let gl = ig_renderer.gl_context().clone();
 
     let mut fbo = unsafe { OffscreenTarget::new(&gl, 1280, 720) };
+
+    // ── Script host ──────────────────────────────────────────────────────────
+    let mut script_host = scripting::ScriptHost::new();
+    script_host.register_mesh("cube", cube);
+    script_host.register_mesh("sphere", sphere);
 
     // ── Editor state ──────────────────────────────────────────────────────────
     let mut selected: Option<Entity> = None;
@@ -138,6 +176,68 @@ fn main() {
                             if ui.button("Spawn Sphere") {
                                 selected = Some(spawn_cube(&mut world, sphere, "Sphere"));
                             }
+
+                            ui.separator();
+
+                            // Stress-test controls: bulk spawn / despawn to
+                            // exercise the scripting cache and ECS under load.
+                            if ui.button("Spawn 100 scripted") {
+                                let base = world.query::<&Mesh>().iter().count();
+                                for i in 0..100usize {
+                                    let a = (i as f32 / 100.0) * std::f32::consts::TAU;
+                                    let r = 1.5 + (i as f32 / 100.0) * 4.0;
+                                    world.spawn((
+                                        Transform {
+                                            position: Vec3::new(a.cos() * r, 0.0, a.sin() * r),
+                                            rotation_axis: Vec3::new(
+                                                (i as f32 * 0.3).sin(),
+                                                1.0,
+                                                (i as f32 * 0.7).cos(),
+                                            ).normalize(),
+                                            rotation_speed: 0.2 + (i % 7) as f32 * 0.15,
+                                            scale: 0.2,
+                                        },
+                                        Mesh(if i % 2 == 0 { cube } else { sphere }),
+                                        Name(format!("swarm_{}", base + i)),
+                                        Script("scripts/swarm.py".to_string()),
+                                    ));
+                                }
+                            }
+                            ui.same_line();
+                            if ui.button("Despawn scripted") {
+                                let scripted: Vec<Entity> = world
+                                    .query::<&Script>()
+                                    .iter()
+                                    .map(|(e, _)| e)
+                                    .collect();
+                                if selected.map(|e| scripted.contains(&e)).unwrap_or(false) {
+                                    selected = None;
+                                }
+                                for e in scripted {
+                                    let _ = world.despawn(e);
+                                }
+                            }
+
+                            ui.separator();
+
+                            // ── Bulk spawn for stress-testing ─────────────────
+                            if ui.button("Spawn 1k") {
+                                spawn_bulk(&mut world, cube, sphere, 1_000);
+                            }
+                            ui.same_line();
+                            if ui.button("Spawn 10k") {
+                                spawn_bulk(&mut world, cube, sphere, 10_000);
+                            }
+                            ui.same_line();
+                            if ui.button("Despawn all") {
+                                let all: Vec<Entity> =
+                                    world.query::<&Mesh>().iter().map(|(e, _)| e).collect();
+                                if selected.map(|e| all.contains(&e)).unwrap_or(false) {
+                                    selected = None;
+                                }
+                                for e in all { let _ = world.despawn(e); }
+                            }
+
                             ui.separator();
 
                             let entities: Vec<Entity> =
@@ -186,6 +286,26 @@ fn main() {
                                 } else {
                                     ui.text("Selected entity has no Transform.");
                                 }
+
+                                ui.separator();
+
+                                // Script component
+                                let cur_script = world
+                                    .get::<&Script>(sel)
+                                    .ok()
+                                    .map(|s| s.0.clone())
+                                    .unwrap_or_default();
+                                let mut script_buf = cur_script.clone();
+                                if ui.input_text("Script", &mut script_buf).build() {
+                                    if script_buf.is_empty() {
+                                        let _ = world.remove::<(Script,)>(sel);
+                                    } else if script_buf != cur_script {
+                                        let _ = world.insert(sel, (Script(script_buf),));
+                                    }
+                                }
+                                if cur_script.is_empty() {
+                                    ui.text_disabled("e.g. scripts/orbit.py");
+                                }
                             }
                             None => ui.text("Select an entity in the Hierarchy."),
                         });
@@ -199,6 +319,10 @@ fn main() {
                             ui.text(format!("Draws:   {draw_count}"));
                             ui.text(format!("Entities:{}", world.len()));
                         });
+
+                    // ── Script update (mutates world before rendering) ────────
+                    let dt = ui.io().delta_time;
+                    script_host.tick(&mut world, elapsed, dt);
 
                     // ── Viewport (renders the scene into the FBO) ─────────────
                     ui.window("Viewport")
