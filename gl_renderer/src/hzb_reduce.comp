@@ -1,0 +1,68 @@
+#version 460 core
+
+// Builds one level of the HZB (hierarchical Z-buffer) pyramid using min-reduction
+// (reverse-Z convention: low depth = far, high depth = near).
+//
+// Two modes selected by u_is_first:
+//   1 → copy the depth texture 1:1 into HZB mip 0 (same resolution as the scene)
+//   0 → min-reduce HZB mip[level-1] (image2D u_src) into mip[level] (image2D u_dst)
+//
+// Dispatch one pass per level with a SHADER_IMAGE_ACCESS_BARRIER_BIT between passes.
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(location = 0) uniform uvec2 u_src_size;  // source mip dimensions
+layout(location = 1) uniform uint  u_is_first;  // 1=copy from depth, 0=reduce HZB
+
+layout(binding = 0) uniform sampler2D               u_depth;  // scene depth texture
+layout(r32f, binding = 1) readonly  uniform image2D u_src;    // previous HZB mip
+layout(r32f, binding = 2) writeonly uniform image2D u_dst;    // current HZB mip
+
+float fetch(ivec2 c) {
+    c = clamp(c, ivec2(0), ivec2(u_src_size) - 1);
+    return (u_is_first != 0u)
+        ? texelFetch(u_depth, c, 0).r
+        : imageLoad(u_src, c).r;
+}
+
+void main() {
+    ivec2 dst = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 dst_size = imageSize(u_dst);
+    if (dst.x >= dst_size.x || dst.y >= dst_size.y) return;
+
+    float result;
+
+    if (u_is_first != 0u) {
+        // 1:1 copy; src_size == dst_size so no 2×2 gather needed.
+        result = texelFetch(u_depth, dst, 0).r;
+    } else {
+        // 2×2 min gather with clamped edge access.
+        ivec2 b = dst * 2;
+        result = min(
+            min(fetch(b), fetch(b + ivec2(1, 0))),
+            min(fetch(b + ivec2(0, 1)), fetch(b + ivec2(1, 1)))
+        );
+
+        // When the source dimension is odd the standard 2×2 gather misses the
+        // last row / column (floor(src/2) mip sizing). Extend the footprint to
+        // cover it — this is conservative (only makes the occluder appear farther,
+        // never nearer) so it cannot introduce false culls.
+        if ((u_src_size.x & 1u) != 0u) {
+            result = min(result, min(
+                fetch(b + ivec2(2, 0)),
+                fetch(b + ivec2(2, 1))
+            ));
+        }
+        if ((u_src_size.y & 1u) != 0u) {
+            result = min(result, min(
+                fetch(b + ivec2(0, 2)),
+                fetch(b + ivec2(1, 2))
+            ));
+        }
+        if ((u_src_size.x & 1u) != 0u && (u_src_size.y & 1u) != 0u) {
+            result = min(result, fetch(b + ivec2(2, 2)));
+        }
+    }
+
+    imageStore(u_dst, dst, vec4(result));
+}

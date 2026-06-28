@@ -6,11 +6,13 @@
 //! an imgui dockspace, so panels can be rearranged and the layout persists in
 //! `imgui.ini`.
 
+mod camera;
 mod scripting;
 
+use camera::EditorCamera;
 use gl_renderer::{
     create_gl_window, generate_cube, generate_sphere, GlWindow, GpuMaterial, Material, Mesh,
-    MeshAlloc, Name, OffscreenTarget, PipelineStats, Renderer, Script, Transform,
+    MeshAlloc, Name, PipelineStats, Renderer, Script, Transform,
 };
 
 use glam::{Mat4, Vec3};
@@ -24,16 +26,13 @@ use std::num::NonZeroU32;
 use std::path::PathBuf;
 use std::time::Instant;
 use winit::{
-    event::{Event, WindowEvent},
+    event::{DeviceEvent, ElementState, Event, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
+    keyboard::{KeyCode, PhysicalKey},
 };
-
-/// Camera eye position (fixed for v1).
-const EYE: Vec3 = Vec3::new(4.5, 3.0, 5.5);
 
 fn spawn_bulk(world: &mut World, cube: MeshAlloc, sphere: MeshAlloc, n: usize) {
     let base = world.query::<&Mesh>().iter().count();
-    // Distribute n entities along a helix so they don't all overlap.
     let turns = (n as f32 / 50.0).max(1.0);
     for i in 0..n {
         let t = i as f32 / n as f32;
@@ -81,8 +80,6 @@ fn fmt_count(n: u64) -> String {
 }
 
 fn main() {
-    // Register the built-in `gl_renderer` Python module before Python initialises.
-    // append_to_inittab! requires a bare ident, not a path.
     use scripting::py_module;
     pyo3::append_to_inittab!(py_module);
 
@@ -96,7 +93,6 @@ fn main() {
     let cube = unsafe { renderer.upload_mesh(&gl, &cv, &ci) };
     let (sv, si) = generate_sphere(24, 32);
     let sphere = unsafe { renderer.upload_mesh(&gl, &sv, &si) };
-    // Index 0 (DEFAULT) is the only static material; seal so the editor can add overrides.
     renderer.seal_static_materials();
 
     let mut world = World::new();
@@ -124,13 +120,9 @@ fn main() {
     let mut platform = WinitPlatform::init(&mut imgui);
     platform.attach_window(imgui.io_mut(), &window, HiDpiMode::Default);
 
-    // AutoRenderer takes ownership of the glow context; share it back via an Rc
-    // clone so the engine renderer and the offscreen target use the same context.
     let mut ig_renderer =
         AutoRenderer::initialize(gl, &mut imgui).expect("failed to init imgui glow renderer");
     let gl = ig_renderer.gl_context().clone();
-
-    let mut fbo = unsafe { OffscreenTarget::new(&gl, 1280, 720) };
 
     // ── Script host ──────────────────────────────────────────────────────────
     let mut script_host = scripting::ScriptHost::new();
@@ -138,20 +130,26 @@ fn main() {
     script_host.register_mesh("sphere", sphere);
 
     // ── Editor state ──────────────────────────────────────────────────────────
+    let mut camera = EditorCamera::new();
     let mut selected: Option<Entity> = None;
+    let mut viewport_hovered = false;
     let start = Instant::now();
     let mut last_frame = Instant::now();
     let mut stats = PipelineStats::default();
+    let mut show_hzb = false;
+    let mut hzb_mip: i32 = 0;
 
     event_loop
         .run(move |event, elwt| {
             elwt.set_control_flow(ControlFlow::Poll);
             platform.handle_event(imgui.io_mut(), &window, &event);
 
-            match event {
+            match &event {
                 Event::WindowEvent { event: WindowEvent::CloseRequested, .. } => {
-                    unsafe { renderer.cleanup(&gl); fbo.cleanup(&gl); }
                     elwt.exit();
+                }
+                Event::LoopExiting => {
+                    unsafe { renderer.cleanup(&gl); }
                 }
                 Event::WindowEvent { event: WindowEvent::Resized(size), .. } => {
                     if size.width > 0 && size.height > 0 {
@@ -162,18 +160,74 @@ fn main() {
                         );
                     }
                 }
+
+                // ── Camera: raw mouse delta (fly / orbit / pan) ───────────────
+                Event::DeviceEvent {
+                    event: DeviceEvent::MouseMotion { delta: (dx, dy) }, ..
+                } => {
+                    camera.on_raw_mouse_delta(*dx as f32, *dy as f32);
+                }
+
+                // ── Camera: mouse buttons ─────────────────────────────────────
+                Event::WindowEvent {
+                    event: WindowEvent::MouseInput { state, button, .. }, ..
+                } => {
+                    camera.on_mouse_button(*button, *state, viewport_hovered, &window);
+                }
+
+                // ── Camera: scroll ────────────────────────────────────────────
+                Event::WindowEvent {
+                    event: WindowEvent::MouseWheel { delta, .. }, ..
+                } => {
+                    camera.on_scroll(delta, viewport_hovered);
+                }
+
+                // ── Camera: WASD keys + F to focus ────────────────────────────
+                Event::WindowEvent {
+                    event: WindowEvent::KeyboardInput {
+                        event: winit::event::KeyEvent {
+                            physical_key: PhysicalKey::Code(key),
+                            state,
+                            ..
+                        }, ..
+                    }, ..
+                } => {
+                    camera.on_key(*key, *state);
+
+                    if *key == KeyCode::KeyF && *state == ElementState::Pressed {
+                        if let Some(sel) = selected {
+                            if let Ok(xf) = world.get::<&Transform>(sel) {
+                                camera.focus_on(xf.position);
+                            }
+                        }
+                    }
+                }
+
+                // ── Camera: Alt / Shift modifiers ─────────────────────────────
+                Event::WindowEvent {
+                    event: WindowEvent::ModifiersChanged(mods), ..
+                } => {
+                    camera.on_modifiers(mods.state());
+                }
+
                 Event::AboutToWait => {
                     let now = Instant::now();
+                    let dt = (now - last_frame).as_secs_f32();
                     imgui.io_mut().update_delta_time(now - last_frame);
                     last_frame = now;
                     let elapsed = start.elapsed().as_secs_f32();
+
+                    // Fly movement
+                    camera.update(dt);
+
+                    // Hot-reload shaders every frame (cheap: only acts on mtime changes).
+                    unsafe { renderer.try_reload_shaders(&gl); }
 
                     platform
                         .prepare_frame(imgui.io_mut(), &window)
                         .expect("prepare_frame failed");
                     let ui = imgui.new_frame();
 
-                    // Host dockspace filling the main viewport.
                     ui.dockspace_over_main_viewport();
 
                     // ── Hierarchy ────────────────────────────────────────────
@@ -191,8 +245,6 @@ fn main() {
 
                             ui.separator();
 
-                            // Stress-test controls: bulk spawn / despawn to
-                            // exercise the scripting cache and ECS under load.
                             if ui.button("Spawn 100 scripted") {
                                 let base = world.query::<&Mesh>().iter().count();
                                 for i in 0..100usize {
@@ -232,7 +284,6 @@ fn main() {
 
                             ui.separator();
 
-                            // ── Bulk spawn for stress-testing ─────────────────
                             if ui.button("Spawn 1k") {
                                 spawn_bulk(&mut world, cube, sphere, 1_000);
                             }
@@ -306,7 +357,6 @@ fn main() {
 
                                 ui.separator();
 
-                                // ── Material ──────────────────────────────────
                                 {
                                     let mat_idx = world.get::<&Material>(sel).ok().map(|m| m.0);
                                     let effective_idx = mat_idx.unwrap_or(0);
@@ -358,7 +408,6 @@ fn main() {
 
                                 ui.separator();
 
-                                // Script component
                                 let cur_script = world
                                     .get::<&Script>(sel)
                                     .ok()
@@ -385,6 +434,7 @@ fn main() {
                         .size([240.0, 190.0], Condition::FirstUseEver)
                         .build(|| {
                             ui.text(format!("FPS          {:.0}", ui.io().framerate));
+                            ui.text(format!("Fly speed    {:.1}", camera.fly_speed));
                             ui.separator();
                             ui.text(format!("Entities     {}", stats.entities));
                             ui.text(format!("Batches      {}", stats.batches));
@@ -395,37 +445,64 @@ fn main() {
                             ui.text(format!("GPU ms       {:.2}", stats.gpu_time_ms));
                         });
 
-                    // ── Script update (mutates world before rendering) ────────
-                    let dt = ui.io().delta_time;
-                    script_host.tick(&mut world, elapsed, dt);
+                    // ── HZB Debug ────────────────────────────────────────────
+                    ui.window("HZB Debug")
+                        .position([0.0, 760.0], Condition::FirstUseEver)
+                        .size([512.0, 300.0], Condition::FirstUseEver)
+                        .build(|| {
+                            ui.checkbox("Show HZB", &mut show_hzb);
+                            if let Some(_hzb) = renderer.hzb_texture() {
+                                let max_mip = (renderer.hzb_levels() as i32 - 1).max(0);
+                                ui.slider("Mip", 0, max_mip, &mut hzb_mip);
+                                hzb_mip = hzb_mip.min(max_mip);
+                                if show_hzb {
+                                    let (hw, hh) = renderer.hzb_size();
+                                    let mip_w = (hw >> hzb_mip as u32).max(1) as f32;
+                                    let mip_h = (hh >> hzb_mip as u32).max(1) as f32;
+                                    let avail = ui.content_region_avail()[0].max(1.0);
+                                    let scale = (avail / mip_w).min(1.0);
+                                    let tex = TextureId::new(_hzb.0.get() as usize);
+                                    Image::new(tex, [mip_w * scale, mip_h * scale])
+                                        .uv0([0.0, 1.0])
+                                        .uv1([1.0, 0.0])
+                                        .build(ui);
+                                }
+                            } else {
+                                ui.text_disabled("Render one frame first.");
+                            }
+                        });
 
-                    // ── Viewport (renders the scene into the FBO) ─────────────
+                    // ── Script update ─────────────────────────────────────────
+                    let frame_dt = ui.io().delta_time;
+                    script_host.tick(&mut world, elapsed, frame_dt);
+
+                    // ── Viewport ──────────────────────────────────────────────
                     ui.window("Viewport")
                         .position([250.0, 24.0], Condition::FirstUseEver)
                         .size([1080.0, 680.0], Condition::FirstUseEver)
                         .build(|| {
+                            // Track hover for the next frame's camera input decisions.
+                            viewport_hovered = ui.is_window_hovered();
+
                             let avail = ui.content_region_avail();
                             let vw = avail[0].max(1.0) as u32;
                             let vh = avail[1].max(1.0) as u32;
                             unsafe {
-                                fbo.resize(&gl, vw, vh);
-                                fbo.bind(&gl);
                                 let aspect = vw as f32 / vh as f32;
-                                let proj =
-                                    Mat4::perspective_rh_gl(45_f32.to_radians(), aspect, 0.1, 100.0);
-                                let view = Mat4::look_at_rh(EYE, Vec3::ZERO, Vec3::Y);
-                                stats =
-                                    renderer.render(&gl, &world, proj * view, elapsed, vw, vh);
+                                let proj = Mat4::perspective_rh_gl(
+                                    45_f32.to_radians(), aspect, 0.1, 1000.0,
+                                );
+                                let view = camera.view_matrix();
+                                stats = renderer.render(&gl, &world, view, proj, elapsed, vw, vh);
                             }
-                            // GL textures are bottom-up; flip V so the image is upright.
-                            let tex = TextureId::new(fbo.color_texture().0.get() as usize);
+                            let tex = TextureId::new(renderer.color_texture().0.get() as usize);
                             Image::new(tex, [vw as f32, vh as f32])
                                 .uv0([0.0, 1.0])
                                 .uv1([1.0, 0.0])
                                 .build(ui);
                         });
 
-                    // ── Composite: scene FBO is done; draw imgui to the window ─
+                    // ── Composite ─────────────────────────────────────────────
                     platform.prepare_render(ui, &window);
                     let draw_data = imgui.render();
                     unsafe {
@@ -435,11 +512,31 @@ fn main() {
                         gl.clear_color(0.1, 0.1, 0.12, 1.0);
                         gl.clear(glow::COLOR_BUFFER_BIT | glow::DEPTH_BUFFER_BIT);
                     }
-                    // Skip empty draw data (e.g. early frames before the surface is
-                    // configured): imgui-rs 0.12 stores a null cmd_lists pointer when
-                    // there are zero lists, which trips slice::from_raw_parts.
+                    if show_hzb {
+                        if let Some(hzb) = renderer.hzb_texture() {
+                            unsafe {
+                                gl.bind_texture(glow::TEXTURE_2D, Some(hzb));
+                                gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_BASE_LEVEL, hzb_mip);
+                                gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_MAX_LEVEL, hzb_mip);
+                                gl.bind_texture(glow::TEXTURE_2D, None);
+                            }
+                        }
+                    }
+
                     if draw_data.draw_lists_count() > 0 {
                         ig_renderer.render(draw_data).expect("imgui render failed");
+                    }
+
+                    if show_hzb {
+                        if let Some(hzb) = renderer.hzb_texture() {
+                            unsafe {
+                                gl.bind_texture(glow::TEXTURE_2D, Some(hzb));
+                                gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_BASE_LEVEL, 0);
+                                gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_MAX_LEVEL,
+                                    (renderer.hzb_levels() as i32 - 1).max(0));
+                                gl.bind_texture(glow::TEXTURE_2D, None);
+                            }
+                        }
                     }
 
                     surface.swap_buffers(&context).expect("swap_buffers failed");

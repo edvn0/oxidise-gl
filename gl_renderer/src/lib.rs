@@ -7,16 +7,15 @@
 
 pub mod arena;
 pub mod components;
-pub mod framebuffer;
 pub mod geometry;
 pub mod gl_buffer;
 pub mod gl_init;
 pub mod renderer;
-pub mod shaders;
+pub mod shader;
+mod framebuffer;
 
 pub use arena::{BoundingSphere, DrawCommand, GpuArena, GpuMaterial, InstanceData, MaterialRegistry, MeshAlloc, MeshKey, PackedVertex};
 pub use components::{Material, Mesh, Name, Script, Transform};
-pub use framebuffer::OffscreenTarget;
 pub use geometry::{generate_cube, generate_sphere};
 pub use gl_init::{create_gl_window, GlWindow};
 pub use renderer::{MultiDrawElementsIndirectCountFn, MultiDrawElementsIndirectFn, PipelineStats, Renderer};

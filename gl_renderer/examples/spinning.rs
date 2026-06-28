@@ -73,8 +73,10 @@ fn main() {
             elwt.set_control_flow(ControlFlow::Poll);
             match event {
                 Event::WindowEvent { event: WindowEvent::CloseRequested, .. } => {
-                    unsafe { renderer.cleanup(&gl) };
                     elwt.exit();
+                }
+                Event::LoopExiting => {
+                    unsafe { renderer.cleanup(&gl) };
                 }
                 Event::WindowEvent { event: WindowEvent::Resized(size), .. } => {
                     current_size = size;
@@ -96,7 +98,11 @@ fn main() {
                         Vec3::Y,
                     );
                     let elapsed = start.elapsed().as_secs_f32();
-                    unsafe { renderer.render(&gl, &world, proj * view, elapsed, w, h) };
+                    unsafe {
+                        renderer.render(&gl, &world, view, proj, elapsed, w, h);
+                        // Render() draws into an internal offscreen FBO; blit to window.
+                        renderer.blit_color_to_default(&gl, w, h);
+                    }
                     surface.swap_buffers(&context).expect("swap_buffers failed");
                     window.request_redraw();
                 }

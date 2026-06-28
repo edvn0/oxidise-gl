@@ -1,5 +1,20 @@
 #version 460 core
 
+// GPU-driven culling compute shader.
+//
+// Two-phase same-frame HZB occlusion culling:
+//   Phase 0: frustum cull + test against PREVIOUS frame's HZB.
+//            Surviving instances written to phase-1 output buffers.
+//            visible_phase1[id] = 1 for every survivor.
+//   Phase 1: skip instances already drawn (visible_phase1[id] == 1).
+//            Frustum cull + test against the CURRENT frame's HZB
+//            (built from the phase-0 draw's depth buffer).
+//            Newly-visible instances written to phase-2 output buffers.
+//
+// Reverse-Z convention: near = 1.0, far = 0.0.
+// HZB stores MIN depth per region (= farthest occluder in each footprint).
+// An object is occluded when its nearest surface depth < HZB value.
+
 layout(local_size_x = 64) in;
 
 struct DrawCommand {
@@ -34,26 +49,51 @@ layout(std430, binding = 2) readonly buffer BatchIndex {
     uint batch_index[];
 };
 
-// Draw commands (one per unique mesh). instance_count is atomicAdd'd by this shader;
-// vertex/index fields are pre-filled by the CPU and left untouched.
+// Draw commands (one per unique mesh). instance_count is atomicAdd'd.
 layout(std430, binding = 3) buffer CulledCommands {
     DrawCommand culled_cmds[];
 };
 
-// Compacted visible instance data written by this shader, read by the vertex shader.
+// Compacted visible instance data written by this shader.
 layout(std430, binding = 4) writeonly buffer CulledInstances {
     InstanceData culled_instances[];
 };
 
-// Per-batch starting offset into culled_instances (prefix sum of batch sizes).
+// Per-batch starting offset into the culled instance buffer (prefix sum).
 layout(std430, binding = 5) readonly buffer BatchBase {
     uint batch_base[];
 };
 
+// Per-entity flag: 1 if this entity was drawn in phase 0, 0 otherwise.
+// Cleared to 0 by the CPU before each frame's first dispatch.
+layout(std430, binding = 6) buffer VisiblePhase1 {
+    uint visible_phase1[];
+};
+
+// ── Uniforms ──────────────────────────────────────────────────────────────────
+
 layout(location = 0) uniform uint u_total_draws;
-// World-space frustum planes (Gribb-Hartmann). Each vec4 is (nx, ny, nz, d);
-// a point p is inside if dot(plane.xyz, p) + plane.w >= 0.
+// World-space frustum planes (Gribb-Hartmann). dot(plane.xyz, p) + plane.w >= 0 → inside.
 layout(location = 1) uniform vec4 u_frustum_planes[6];
+// 0 = phase 0 (use prev-frame HZB), 1 = phase 1 (use current-frame HZB).
+layout(location = 7) uniform uint u_phase;
+// Full view-projection matrix (for screen-space sphere projection).
+layout(location = 8) uniform mat4 u_view_proj;
+// Viewport size in pixels.
+layout(location = 12) uniform vec2 u_screen_size;
+// Highest valid HZB mip index (= hzb_levels - 1).
+layout(location = 13) uniform uint u_hzb_max_level;
+// Projection x/y scale factors (proj[0][0] and proj[1][1]); used to project
+// the bounding-sphere radius into screen pixels without needing the proj matrix.
+layout(location = 14) uniform float u_proj_x_scale;
+layout(location = 15) uniform float u_proj_y_scale;
+// World-space camera position (for nearest-surface depth computation).
+layout(location = 16) uniform vec3 u_eye_pos;
+
+// HZB pyramid (R32F, mip chain). layout(binding=0) → texture unit 0.
+layout(binding = 0) uniform sampler2D u_hzb;
+
+// ── Frustum culling ───────────────────────────────────────────────────────────
 
 bool sphere_in_frustum(vec4 sphere_model, mat4 model) {
     vec3 center = (model * vec4(sphere_model.xyz, 1.0)).xyz;
@@ -68,16 +108,92 @@ bool sphere_in_frustum(vec4 sphere_model, mat4 model) {
     return true;
 }
 
+// ── HZB occlusion test ────────────────────────────────────────────────────────
+//
+// Returns true if the sphere is (conservatively) visible in the HZB.
+// Reverse-Z:  near depth = 1.0,  far depth = 0.0.
+// HZB value = MIN depth over footprint = farthest rendered occluder in region.
+// Object is occluded iff nearest-surface depth < HZB value.
+
+bool sphere_visible_in_hzb(vec4 sphere_model, mat4 model) {
+    // World-space center + radius (account for non-uniform scale).
+    vec3 center_w = (model * vec4(sphere_model.xyz, 1.0)).xyz;
+    float sx = length(model[0].xyz);
+    float sy = length(model[1].xyz);
+    float sz = length(model[2].xyz);
+    float r  = sphere_model.w * max(sx, max(sy, sz));
+
+    // Camera inside sphere → always visible.
+    vec3 to_center = center_w - u_eye_pos;
+    float dist = length(to_center);
+    if (dist <= r) return true;
+
+    // ── Nearest-surface depth ─────────────────────────────────────────────────
+    // Project the sphere's nearest point to the camera into clip space.
+    vec3 near_w  = center_w - (to_center / dist) * r;
+    vec4 near_clip = u_view_proj * vec4(near_w, 1.0);
+    if (near_clip.w <= 0.0) return true;  // behind camera, conservative
+    float near_depth = near_clip.z / near_clip.w;  // depth-buffer value [0,1]
+
+    // ── Screen-space AABB of sphere ───────────────────────────────────────────
+    vec4 clip = u_view_proj * vec4(center_w, 1.0);
+    if (clip.w <= 0.0) return true;
+    vec3 ndc = clip.xyz / clip.w;
+
+    // Project radius into NDC using projection scale factors.
+    float r_ndc_x = r * abs(u_proj_x_scale) / clip.w;
+    float r_ndc_y = r * abs(u_proj_y_scale) / clip.w;
+
+    vec2 center_px = (ndc.xy * 0.5 + 0.5) * u_screen_size;
+    vec2 r_px      = vec2(r_ndc_x, r_ndc_y) * 0.5 * u_screen_size;
+    vec2 aabb_min  = clamp(center_px - r_px, vec2(0.0), u_screen_size);
+    vec2 aabb_max  = clamp(center_px + r_px, vec2(0.0), u_screen_size);
+
+    if (aabb_max.x <= aabb_min.x || aabb_max.y <= aabb_min.y) return false;
+
+    // ── HZB sample ────────────────────────────────────────────────────────────
+    // Choose mip level so the AABB footprint covers ~1-4 texels.
+    vec2 aabb_px  = aabb_max - aabb_min;
+    int  level    = int(ceil(log2(max(max(aabb_px.x, aabb_px.y), 1.0))));
+    level = clamp(level, 0, int(u_hzb_max_level));
+
+    float scale   = pow(0.5, float(level));
+    ivec2 lsz     = max(ivec2(u_screen_size * scale), ivec2(1));
+    ivec2 t0      = clamp(ivec2(aabb_min * scale),          ivec2(0), lsz - 1);
+    ivec2 t1      = clamp(ivec2(aabb_max * scale - 0.001),  ivec2(0), lsz - 1);
+
+    float h00 = texelFetch(u_hzb, t0,                 level).r;
+    float h10 = texelFetch(u_hzb, ivec2(t1.x, t0.y), level).r;
+    float h01 = texelFetch(u_hzb, ivec2(t0.x, t1.y), level).r;
+    float h11 = texelFetch(u_hzb, t1,                 level).r;
+
+    // Farthest occluder in footprint (min = farthest in reverse-Z).
+    float occluder_depth = min(min(h00, h10), min(h01, h11));
+
+    // Visible if nearest surface is at least as close as the farthest occluder.
+    // (near_depth >= occluder_depth means NOT fully behind all occluders.)
+    return near_depth >= occluder_depth;
+}
+
+// ── Main ──────────────────────────────────────────────────────────────────────
+
 void main() {
     uint id = gl_GlobalInvocationID.x;
     if (id >= u_total_draws) return;
+
+    // Phase 1: skip entities already drawn in phase 0.
+    if (u_phase == 1u && visible_phase1[id] != 0u) return;
 
     uint b      = batch_index[id];
     vec4 sphere = bounding_spheres[id];
     mat4 model  = instances[id].model;
 
-    if (sphere_in_frustum(sphere, model)) {
-        uint slot = atomicAdd(culled_cmds[b].instance_count, 1u);
-        culled_instances[batch_base[b] + slot] = instances[id];
-    }
+    if (!sphere_in_frustum(sphere, model))     return;
+    if (!sphere_visible_in_hzb(sphere, model)) return;
+
+    // Mark as drawn in phase 0 (phase 1 reads this to skip already-rendered entities).
+    if (u_phase == 0u) visible_phase1[id] = 1u;
+
+    uint slot = atomicAdd(culled_cmds[b].instance_count, 1u);
+    culled_instances[batch_base[b] + slot] = instances[id];
 }
