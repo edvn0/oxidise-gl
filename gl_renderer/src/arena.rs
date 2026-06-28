@@ -17,21 +17,21 @@ pub struct BoundingSphere {
 #[repr(C)]
 #[derive(Clone, Copy, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct PackedVertex {
-    pub pos_xy: u32,   // packHalf2x16(x, y)
-    pub pos_z:  u32,   // packHalf2x16(z, 0.0)
-    pub norm_xy: u32,  // packHalf2x16(nx, ny)
-    pub norm_z:  u32,  // packHalf2x16(nz, 0.0)
-    pub uv_xy:  u32,   // packHalf2x16(u, v)
+    pub pos_xy: u32,  // packHalf2x16(x, y)
+    pub pos_z: u32,   // packHalf2x16(z, 0.0)
+    pub norm_xy: u32, // packHalf2x16(nx, ny)
+    pub norm_z: u32,  // packHalf2x16(nz, 0.0)
+    pub uv_xy: u32,   // packHalf2x16(u, v)
 }
 
 impl PackedVertex {
     pub fn new(pos: [f32; 3], norm: [f32; 3], uv: [f32; 2]) -> Self {
         Self {
-            pos_xy:  pack_half2(pos[0],  pos[1]),
-            pos_z:   pack_half2(pos[2],  0.0),
+            pos_xy: pack_half2(pos[0], pos[1]),
+            pos_z: pack_half2(pos[2], 0.0),
             norm_xy: pack_half2(norm[0], norm[1]),
-            norm_z:  pack_half2(norm[2], 0.0),
-            uv_xy:   pack_half2(uv[0],   uv[1]),
+            norm_z: pack_half2(norm[2], 0.0),
+            uv_xy: pack_half2(uv[0], uv[1]),
         }
     }
 }
@@ -65,12 +65,15 @@ pub struct MeshAlloc {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct MeshKey {
     pub vertex_offset: u32,
-    pub index_offset:  u32,
+    pub index_offset: u32,
 }
 
 impl From<MeshAlloc> for MeshKey {
     fn from(a: MeshAlloc) -> Self {
-        Self { vertex_offset: a.vertex_offset, index_offset: a.index_offset }
+        Self {
+            vertex_offset: a.vertex_offset,
+            index_offset: a.index_offset,
+        }
     }
 }
 
@@ -80,10 +83,10 @@ impl MeshAlloc {
     /// `gl_BaseInstance + gl_InstanceID` in the vertex shader).
     pub fn draw_command_instanced(&self, instance_count: u32, base_instance: u32) -> DrawCommand {
         DrawCommand {
-            count:          self.index_count,
+            count: self.index_count,
             instance_count,
-            first_index:    self.index_offset,
-            base_vertex:    self.vertex_offset,
+            first_index: self.index_offset,
+            base_vertex: self.vertex_offset,
             base_instance,
         }
     }
@@ -94,11 +97,11 @@ impl MeshAlloc {
 #[repr(C)]
 #[derive(Clone, Copy, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct DrawCommand {
-    pub count:          u32, // index count for this draw
+    pub count: u32,          // index count for this draw
     pub instance_count: u32, // number of instances sharing this mesh
-    pub first_index:    u32, // first index in the shared IBO (in indices, not bytes)
-    pub base_vertex:    u32, // base vertex offset into the shared vertex SSBO
-    pub base_instance:  u32, // first instance in the flat instance SSBO for this batch
+    pub first_index: u32,    // first index in the shared IBO (in indices, not bytes)
+    pub base_vertex: u32,    // base vertex offset into the shared vertex SSBO
+    pub base_instance: u32,  // first instance in the flat instance SSBO for this batch
 }
 
 /// Per-object data uploaded to the instance SSBO, addressed in the vertex
@@ -107,10 +110,10 @@ pub struct DrawCommand {
 #[repr(C)]
 #[derive(Clone, Copy, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct InstanceData {
-    pub model:          [f32; 16], // column-major model matrix
-    pub normal:         [f32; 16], // inverse-transpose of model's 3x3, widened to mat4
-    pub material_index: u32,       // index into the material SSBO; 0 = default material
-    pub _pad:           [u32; 3],
+    pub model: [f32; 16],    // column-major model matrix
+    pub normal: [f32; 16],   // inverse-transpose of model's 3x3, widened to mat4
+    pub material_index: u32, // index into the material SSBO; 0 = default material
+    pub _pad: [u32; 3],
 }
 
 /// A material slot in the GPU material SSBO.
@@ -119,17 +122,17 @@ pub struct InstanceData {
 #[derive(Clone, Copy, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct GpuMaterial {
     pub base_color: [f32; 4], // linear RGBA albedo
-    pub roughness:  f32,
-    pub metallic:   f32,
-    pub _pad:       [f32; 2],
+    pub roughness: f32,
+    pub metallic: f32,
+    pub _pad: [f32; 2],
 }
 
 impl GpuMaterial {
     pub const DEFAULT: Self = Self {
         base_color: [0.85, 0.82, 0.78, 1.0],
-        roughness:  0.7,
-        metallic:   0.0,
-        _pad:       [0.0; 2],
+        roughness: 0.7,
+        metallic: 0.0,
+        _pad: [0.0; 2],
     };
 }
 
@@ -145,7 +148,7 @@ impl GpuMaterial {
 /// Layout: `[0 .. static_end)` static, `[static_end .. len)` overrides.
 /// Index 0 is always [`GpuMaterial::DEFAULT`], pre-populated in [`new`].
 pub struct MaterialRegistry {
-    materials:           Vec<GpuMaterial>,
+    materials: Vec<GpuMaterial>,
     static_material_end: Option<usize>,
 }
 
@@ -154,7 +157,7 @@ impl MaterialRegistry {
     /// The static zone is open until [`seal`] is called.
     pub fn new() -> Self {
         Self {
-            materials:           vec![GpuMaterial::DEFAULT],
+            materials: vec![GpuMaterial::DEFAULT],
             static_material_end: None,
         }
     }
@@ -237,11 +240,21 @@ mod tests {
     use super::*;
 
     fn red() -> GpuMaterial {
-        GpuMaterial { base_color: [1.0, 0.0, 0.0, 1.0], roughness: 0.5, metallic: 0.0, _pad: [0.0; 2] }
+        GpuMaterial {
+            base_color: [1.0, 0.0, 0.0, 1.0],
+            roughness: 0.5,
+            metallic: 0.0,
+            _pad: [0.0; 2],
+        }
     }
 
     fn blue() -> GpuMaterial {
-        GpuMaterial { base_color: [0.0, 0.0, 1.0, 1.0], roughness: 0.2, metallic: 1.0, _pad: [0.0; 2] }
+        GpuMaterial {
+            base_color: [0.0, 0.0, 1.0, 1.0],
+            roughness: 0.2,
+            metallic: 1.0,
+            _pad: [0.0; 2],
+        }
     }
 
     // ── Initial state ─────────────────────────────────────────────────────────
@@ -435,7 +448,10 @@ fn unpack_half2(packed: u32) -> [f32; 2] {
 
 fn compute_bounding_sphere(vertices: &[PackedVertex]) -> BoundingSphere {
     if vertices.is_empty() {
-        return BoundingSphere { center: [0.0; 3], radius: 0.0 };
+        return BoundingSphere {
+            center: [0.0; 3],
+            radius: 0.0,
+        };
     }
     let mut cx = 0.0f32;
     let mut cy = 0.0f32;
@@ -443,10 +459,14 @@ fn compute_bounding_sphere(vertices: &[PackedVertex]) -> BoundingSphere {
     for v in vertices {
         let [x, y] = unpack_half2(v.pos_xy);
         let [z, _] = unpack_half2(v.pos_z);
-        cx += x; cy += y; cz += z;
+        cx += x;
+        cy += y;
+        cz += z;
     }
     let n = vertices.len() as f32;
-    cx /= n; cy /= n; cz /= n;
+    cx /= n;
+    cy /= n;
+    cz /= n;
     let mut radius = 0.0f32;
     for v in vertices {
         let [x, y] = unpack_half2(v.pos_xy);
@@ -456,24 +476,27 @@ fn compute_bounding_sphere(vertices: &[PackedVertex]) -> BoundingSphere {
         let dz = z - cz;
         radius = radius.max((dx * dx + dy * dy + dz * dz).sqrt());
     }
-    BoundingSphere { center: [cx, cy, cz], radius }
+    BoundingSphere {
+        center: [cx, cy, cz],
+        radius,
+    }
 }
 
 /// Shared GPU arena: one vertex SSBO and one index buffer.
 /// Meshes are sub-allocated into contiguous ranges.
 pub struct GpuArena {
     pub vertex_buf: GlBuffer<PackedVertex>,
-    pub index_buf:  GlBuffer<u32>,
+    pub index_buf: GlBuffer<u32>,
 
     next_vertex: u32,
-    next_index:  u32,
+    next_index: u32,
 }
 
 impl GpuArena {
     /// Create the arena with the given initial capacities. Both buffers grow automatically.
     pub unsafe fn new(gl: &Context, initial_vertices: usize, initial_indices: usize) -> Self {
         let vertex_buf = GlBuffer::new(gl, initial_vertices, BufferUsage::DynamicDraw);
-        let index_buf  = GlBuffer::new(gl, initial_indices,  BufferUsage::DynamicDraw);
+        let index_buf = GlBuffer::new(gl, initial_indices, BufferUsage::DynamicDraw);
         Self {
             vertex_buf,
             index_buf,
@@ -513,17 +536,19 @@ impl GpuArena {
         let v_offset = self.next_vertex;
         let i_offset = self.next_index;
 
-        self.vertex_buf.upload_subrange(gl, vertices, v_offset as usize);
-        self.index_buf.upload_subrange(gl, indices, i_offset as usize);
+        self.vertex_buf
+            .upload_subrange(gl, vertices, v_offset as usize);
+        self.index_buf
+            .upload_subrange(gl, indices, i_offset as usize);
 
         self.next_vertex += vertices.len() as u32;
-        self.next_index  += indices.len()  as u32;
+        self.next_index += indices.len() as u32;
 
         MeshAlloc {
-            vertex_offset:   v_offset,
-            vertex_count:    vertices.len() as u32,
-            index_offset:    i_offset,
-            index_count:     indices.len()  as u32,
+            vertex_offset: v_offset,
+            vertex_count: vertices.len() as u32,
+            index_offset: i_offset,
+            index_count: indices.len() as u32,
             bounding_sphere: compute_bounding_sphere(vertices),
         }
     }

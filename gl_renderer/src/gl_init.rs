@@ -10,8 +10,7 @@ use glow::{Context, HasContext};
 use glutin::{
     config::ConfigTemplateBuilder,
     context::{
-        ContextApi, ContextAttributesBuilder, NotCurrentGlContext, PossiblyCurrentContext,
-        Version,
+        ContextApi, ContextAttributesBuilder, NotCurrentGlContext, PossiblyCurrentContext, Version,
     },
     display::GetGlDisplay,
     prelude::*,
@@ -24,13 +23,13 @@ use winit::{dpi::LogicalSize, event_loop::EventLoop, window::Window, window::Win
 /// Everything a host needs to render: the window, the current GL surface and
 /// context, the `glow::Context`, the loaded MDI entry points, and the chosen config.
 pub struct GlWindow {
-    pub window:     Window,
-    pub surface:    Surface<WindowSurface>,
-    pub context:    PossiblyCurrentContext,
-    pub gl:         Context,
-    pub mdi:        MultiDrawElementsIndirectFn,
-    pub mdi_count:  MultiDrawElementsIndirectCountFn,
-    pub gl_config:  glutin::config::Config,
+    pub window: Window,
+    pub surface: Surface<WindowSurface>,
+    pub context: PossiblyCurrentContext,
+    pub gl: Context,
+    pub mdi: MultiDrawElementsIndirectFn,
+    pub mdi_count: MultiDrawElementsIndirectCountFn,
+    pub gl_config: glutin::config::Config,
 }
 
 /// Build a window and a current OpenGL 4.3 context for `event_loop`.
@@ -53,7 +52,13 @@ pub fn create_gl_window(
     let (window, gl_config) = display_builder
         .build(event_loop, template, |configs| {
             configs
-                .reduce(|a, b| if b.num_samples() > a.num_samples() { b } else { a })
+                .reduce(|a, b| {
+                    if b.num_samples() > a.num_samples() {
+                        b
+                    } else {
+                        a
+                    }
+                })
                 .expect("no suitable GL config")
         })
         .expect("failed to build display");
@@ -86,17 +91,18 @@ pub fn create_gl_window(
     };
 
     let mut gl = unsafe {
-        Context::from_loader_function_cstr(|s| {
-            gl_config.display().get_proc_address(s) as *const _
-        })
+        Context::from_loader_function_cstr(|s| gl_config.display().get_proc_address(s) as *const _)
     };
 
     // glow doesn't wrap glMultiDrawElementsIndirect, so load the entry point
     // ourselves from the same display. Core since GL 4.3 (guaranteed here).
     let mdi: MultiDrawElementsIndirectFn = unsafe {
         let name = std::ffi::CString::new("glMultiDrawElementsIndirect").unwrap();
-        let ptr  = gl_config.display().get_proc_address(name.as_c_str());
-        assert!(!ptr.is_null(), "glMultiDrawElementsIndirect unavailable (need GL 4.3+)");
+        let ptr = gl_config.display().get_proc_address(name.as_c_str());
+        assert!(
+            !ptr.is_null(),
+            "glMultiDrawElementsIndirect unavailable (need GL 4.3+)"
+        );
         std::mem::transmute::<*const std::ffi::c_void, MultiDrawElementsIndirectFn>(ptr)
     };
 
@@ -104,8 +110,11 @@ pub fn create_gl_window(
     // Core since GL 4.6 (ARB_indirect_parameters).
     let mdi_count: MultiDrawElementsIndirectCountFn = unsafe {
         let name = std::ffi::CString::new("glMultiDrawElementsIndirectCount").unwrap();
-        let ptr  = gl_config.display().get_proc_address(name.as_c_str());
-        assert!(!ptr.is_null(), "glMultiDrawElementsIndirectCount unavailable (need GL 4.6)");
+        let ptr = gl_config.display().get_proc_address(name.as_c_str());
+        assert!(
+            !ptr.is_null(),
+            "glMultiDrawElementsIndirectCount unavailable (need GL 4.6)"
+        );
         std::mem::transmute::<*const std::ffi::c_void, MultiDrawElementsIndirectCountFn>(ptr)
     };
 
@@ -131,5 +140,13 @@ pub fn create_gl_window(
         }
     }
 
-    GlWindow { window, surface, context, gl, mdi, mdi_count, gl_config }
+    GlWindow {
+        window,
+        surface,
+        context,
+        gl,
+        mdi,
+        mdi_count,
+        gl_config,
+    }
 }

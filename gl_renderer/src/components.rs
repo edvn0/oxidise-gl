@@ -6,10 +6,10 @@ use glam::{Mat4, Vec3};
 
 /// Animated placement of an object in the world.
 pub struct Transform {
-    pub position:       Vec3,
-    pub rotation_axis:  Vec3,
+    pub position: Vec3,
+    pub rotation_axis: Vec3,
     pub rotation_speed: f32,
-    pub scale:          f32,
+    pub scale: f32,
 }
 
 impl Transform {

@@ -8,16 +8,16 @@ use glam::{Mat4, Vec3};
 use glow::{Context, HasContext, NativeProgram, NativeShader, NativeUniformLocation};
 
 pub struct Shader {
-    program:  NativeProgram,
+    program: NativeProgram,
     // Locations are cached on first use; cleared on hot-reload.
     uniforms: RefCell<HashMap<String, Option<NativeUniformLocation>>>,
-    sources:  Sources,
-    mtimes:   Vec<SystemTime>,
+    sources: Sources,
+    mtimes: Vec<SystemTime>,
 }
 
 enum Sources {
     Graphics { vert: PathBuf, frag: PathBuf },
-    Compute  { comp: PathBuf },
+    Compute { comp: PathBuf },
 }
 
 impl Shader {
@@ -26,8 +26,11 @@ impl Shader {
         Self {
             program,
             uniforms: RefCell::new(HashMap::new()),
-            sources:  Sources::Graphics { vert: vert.to_owned(), frag: frag.to_owned() },
-            mtimes:   vec![mtime(vert), mtime(frag)],
+            sources: Sources::Graphics {
+                vert: vert.to_owned(),
+                frag: frag.to_owned(),
+            },
+            mtimes: vec![mtime(vert), mtime(frag)],
         }
     }
 
@@ -36,8 +39,10 @@ impl Shader {
         Self {
             program,
             uniforms: RefCell::new(HashMap::new()),
-            sources:  Sources::Compute { comp: comp.to_owned() },
-            mtimes:   vec![mtime(comp)],
+            sources: Sources::Compute {
+                comp: comp.to_owned(),
+            },
+            mtimes: vec![mtime(comp)],
         }
     }
 
@@ -50,7 +55,9 @@ impl Shader {
     pub unsafe fn try_reload(&mut self, gl: &Context) -> bool {
         let paths = self.paths();
         let new_mtimes: Vec<SystemTime> = paths.iter().map(|p| mtime(p)).collect();
-        if new_mtimes == self.mtimes { return false; }
+        if new_mtimes == self.mtimes {
+            return false;
+        }
 
         let result = match &self.sources {
             Sources::Graphics { vert, frag } => {
@@ -59,12 +66,10 @@ impl Shader {
                     (Err(e), _) | (_, Err(e)) => Err(e.to_string()),
                 }
             }
-            Sources::Compute { comp } => {
-                match fs::read_to_string(comp) {
-                    Ok(cs)  => try_compile_compute(gl, &cs),
-                    Err(e)  => Err(e.to_string()),
-                }
-            }
+            Sources::Compute { comp } => match fs::read_to_string(comp) {
+                Ok(cs) => try_compile_compute(gl, &cs),
+                Err(e) => Err(e.to_string()),
+            },
         };
 
         // Update mtimes unconditionally so we don't spam on every frame after a bad save.
@@ -140,7 +145,7 @@ impl Shader {
     fn paths(&self) -> Vec<PathBuf> {
         match &self.sources {
             Sources::Graphics { vert, frag } => vec![vert.clone(), frag.clone()],
-            Sources::Compute  { comp }       => vec![comp.clone()],
+            Sources::Compute { comp } => vec![comp.clone()],
         }
     }
 }
@@ -148,8 +153,7 @@ impl Shader {
 // ── Private compilation helpers ───────────────────────────────────────────────
 
 fn read(path: &Path) -> String {
-    fs::read_to_string(path)
-        .unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display()))
+    fs::read_to_string(path).unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display()))
 }
 
 fn mtime(path: &Path) -> SystemTime {
@@ -173,9 +177,14 @@ unsafe fn compile_stage(gl: &Context, kind: u32, src: &str) -> Result<NativeShad
 
 unsafe fn link(gl: &Context, stages: &[NativeShader]) -> Result<NativeProgram, String> {
     let prog = gl.create_program().map_err(|e| e.to_string())?;
-    for &s in stages { gl.attach_shader(prog, s); }
+    for &s in stages {
+        gl.attach_shader(prog, s);
+    }
     gl.link_program(prog);
-    for &s in stages { gl.detach_shader(prog, s); gl.delete_shader(s); }
+    for &s in stages {
+        gl.detach_shader(prog, s);
+        gl.delete_shader(s);
+    }
     if gl.get_program_link_status(prog) {
         Ok(prog)
     } else {
@@ -188,8 +197,11 @@ unsafe fn link(gl: &Context, stages: &[NativeShader]) -> Result<NativeProgram, S
 unsafe fn try_compile_graphics(gl: &Context, vs: &str, fs: &str) -> Result<NativeProgram, String> {
     let vert = compile_stage(gl, glow::VERTEX_SHADER, vs)?;
     let frag = match compile_stage(gl, glow::FRAGMENT_SHADER, fs) {
-        Ok(s)  => s,
-        Err(e) => { gl.delete_shader(vert); return Err(e); }
+        Ok(s) => s,
+        Err(e) => {
+            gl.delete_shader(vert);
+            return Err(e);
+        }
     };
     link(gl, &[vert, frag])
 }
@@ -200,11 +212,9 @@ unsafe fn try_compile_compute(gl: &Context, cs: &str) -> Result<NativeProgram, S
 }
 
 unsafe fn compile_graphics(gl: &Context, vs: &str, fs: &str) -> NativeProgram {
-    try_compile_graphics(gl, vs, fs)
-        .unwrap_or_else(|e| panic!("shader compile error:\n{e}"))
+    try_compile_graphics(gl, vs, fs).unwrap_or_else(|e| panic!("shader compile error:\n{e}"))
 }
 
 unsafe fn compile_compute(gl: &Context, cs: &str) -> NativeProgram {
-    try_compile_compute(gl, cs)
-        .unwrap_or_else(|e| panic!("shader compile error:\n{e}"))
+    try_compile_compute(gl, cs).unwrap_or_else(|e| panic!("shader compile error:\n{e}"))
 }

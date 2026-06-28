@@ -42,11 +42,8 @@ fn spawn_bulk(world: &mut World, cube: MeshAlloc, sphere: MeshAlloc, n: usize) {
         world.spawn((
             Transform {
                 position: Vec3::new(a.cos() * r, y, a.sin() * r),
-                rotation_axis: Vec3::new(
-                    (i as f32 * 0.37).sin(),
-                    1.0,
-                    (i as f32 * 0.71).cos(),
-                ).normalize(),
+                rotation_axis: Vec3::new((i as f32 * 0.37).sin(), 1.0, (i as f32 * 0.71).cos())
+                    .normalize(),
                 rotation_speed: 0.05 + (i % 13) as f32 * 0.04,
                 scale: 0.08,
             },
@@ -59,10 +56,10 @@ fn spawn_bulk(world: &mut World, cube: MeshAlloc, sphere: MeshAlloc, n: usize) {
 fn spawn_cube(world: &mut World, mesh: MeshAlloc, name: &str) -> Entity {
     world.spawn((
         Transform {
-            position:       Vec3::ZERO,
-            rotation_axis:  Vec3::Y,
+            position: Vec3::ZERO,
+            rotation_axis: Vec3::Y,
             rotation_speed: 0.5,
-            scale:          1.0,
+            scale: 1.0,
         },
         Mesh(mesh),
         Name(name.to_string()),
@@ -84,8 +81,14 @@ fn main() {
     pyo3::append_to_inittab!(py_module);
 
     let event_loop = EventLoop::new().expect("failed to create event loop");
-    let GlWindow { window, surface, context, gl, mdi_count, .. } =
-        create_gl_window(&event_loop, "gl_renderer editor", 1600, 900);
+    let GlWindow {
+        window,
+        surface,
+        context,
+        gl,
+        mdi_count,
+        ..
+    } = create_gl_window(&event_loop, "gl_renderer editor", 1600, 900);
 
     // ── Engine renderer + scene ─────────────────────────────────────────────
     let mut renderer = unsafe { Renderer::new(&gl, mdi_count) };
@@ -97,19 +100,34 @@ fn main() {
 
     let mut world = World::new();
     world.spawn((
-        Transform { position: Vec3::ZERO, rotation_axis: Vec3::new(1.0, 1.0, 0.0).normalize(),
-                    rotation_speed: 0.7, scale: 1.0 },
-        Mesh(cube), Name("Cube".into()),
+        Transform {
+            position: Vec3::ZERO,
+            rotation_axis: Vec3::new(1.0, 1.0, 0.0).normalize(),
+            rotation_speed: 0.7,
+            scale: 1.0,
+        },
+        Mesh(cube),
+        Name("Cube".into()),
     ));
     world.spawn((
-        Transform { position: Vec3::new(2.5, 0.0, 0.0), rotation_axis: Vec3::Y,
-                    rotation_speed: 1.4, scale: 0.6 },
-        Mesh(sphere), Name("Sphere".into()),
+        Transform {
+            position: Vec3::new(2.5, 0.0, 0.0),
+            rotation_axis: Vec3::Y,
+            rotation_speed: 1.4,
+            scale: 0.6,
+        },
+        Mesh(sphere),
+        Name("Sphere".into()),
     ));
     world.spawn((
-        Transform { position: Vec3::new(-2.2, 0.8, -0.5), rotation_axis: Vec3::new(0.0, 1.0, 0.5).normalize(),
-                    rotation_speed: 0.4, scale: 0.7 },
-        Mesh(cube), Name("Cube.001".into()),
+        Transform {
+            position: Vec3::new(-2.2, 0.8, -0.5),
+            rotation_axis: Vec3::new(0.0, 1.0, 0.5).normalize(),
+            rotation_speed: 0.4,
+            scale: 0.7,
+        },
+        Mesh(cube),
+        Name("Cube.001".into()),
     ));
 
     // ── imgui setup ─────────────────────────────────────────────────────────
@@ -145,13 +163,19 @@ fn main() {
             platform.handle_event(imgui.io_mut(), &window, &event);
 
             match &event {
-                Event::WindowEvent { event: WindowEvent::CloseRequested, .. } => {
+                Event::WindowEvent {
+                    event: WindowEvent::CloseRequested,
+                    ..
+                } => {
                     elwt.exit();
                 }
-                Event::LoopExiting => {
-                    unsafe { renderer.cleanup(&gl); }
-                }
-                Event::WindowEvent { event: WindowEvent::Resized(size), .. } => {
+                Event::LoopExiting => unsafe {
+                    renderer.cleanup(&gl);
+                },
+                Event::WindowEvent {
+                    event: WindowEvent::Resized(size),
+                    ..
+                } => {
                     if size.width > 0 && size.height > 0 {
                         surface.resize(
                             &context,
@@ -163,34 +187,41 @@ fn main() {
 
                 // ── Camera: raw mouse delta (fly / orbit / pan) ───────────────
                 Event::DeviceEvent {
-                    event: DeviceEvent::MouseMotion { delta: (dx, dy) }, ..
+                    event: DeviceEvent::MouseMotion { delta: (dx, dy) },
+                    ..
                 } => {
                     camera.on_raw_mouse_delta(*dx as f32, *dy as f32);
                 }
 
                 // ── Camera: mouse buttons ─────────────────────────────────────
                 Event::WindowEvent {
-                    event: WindowEvent::MouseInput { state, button, .. }, ..
+                    event: WindowEvent::MouseInput { state, button, .. },
+                    ..
                 } => {
                     camera.on_mouse_button(*button, *state, viewport_hovered, &window);
                 }
 
                 // ── Camera: scroll ────────────────────────────────────────────
                 Event::WindowEvent {
-                    event: WindowEvent::MouseWheel { delta, .. }, ..
+                    event: WindowEvent::MouseWheel { delta, .. },
+                    ..
                 } => {
                     camera.on_scroll(delta, viewport_hovered);
                 }
 
                 // ── Camera: WASD keys + F to focus ────────────────────────────
                 Event::WindowEvent {
-                    event: WindowEvent::KeyboardInput {
-                        event: winit::event::KeyEvent {
-                            physical_key: PhysicalKey::Code(key),
-                            state,
+                    event:
+                        WindowEvent::KeyboardInput {
+                            event:
+                                winit::event::KeyEvent {
+                                    physical_key: PhysicalKey::Code(key),
+                                    state,
+                                    ..
+                                },
                             ..
-                        }, ..
-                    }, ..
+                        },
+                    ..
                 } => {
                     camera.on_key(*key, *state);
 
@@ -205,7 +236,8 @@ fn main() {
 
                 // ── Camera: Alt / Shift modifiers ─────────────────────────────
                 Event::WindowEvent {
-                    event: WindowEvent::ModifiersChanged(mods), ..
+                    event: WindowEvent::ModifiersChanged(mods),
+                    ..
                 } => {
                     camera.on_modifiers(mods.state());
                 }
@@ -221,7 +253,9 @@ fn main() {
                     camera.update(dt);
 
                     // Hot-reload shaders every frame (cheap: only acts on mtime changes).
-                    unsafe { renderer.try_reload_shaders(&gl); }
+                    unsafe {
+                        renderer.try_reload_shaders(&gl);
+                    }
 
                     platform
                         .prepare_frame(imgui.io_mut(), &window)
@@ -257,7 +291,8 @@ fn main() {
                                                 (i as f32 * 0.3).sin(),
                                                 1.0,
                                                 (i as f32 * 0.7).cos(),
-                                            ).normalize(),
+                                            )
+                                            .normalize(),
                                             rotation_speed: 0.2 + (i % 7) as f32 * 0.15,
                                             scale: 0.2,
                                         },
@@ -269,11 +304,8 @@ fn main() {
                             }
                             ui.same_line();
                             if ui.button("Despawn scripted") {
-                                let scripted: Vec<Entity> = world
-                                    .query::<&Script>()
-                                    .iter()
-                                    .map(|(e, _)| e)
-                                    .collect();
+                                let scripted: Vec<Entity> =
+                                    world.query::<&Script>().iter().map(|(e, _)| e).collect();
                                 if selected.map(|e| scripted.contains(&e)).unwrap_or(false) {
                                     selected = None;
                                 }
@@ -298,15 +330,17 @@ fn main() {
                                 if selected.map(|e| all.contains(&e)).unwrap_or(false) {
                                     selected = None;
                                 }
-                                for e in all { let _ = world.despawn(e); }
+                                for e in all {
+                                    let _ = world.despawn(e);
+                                }
                             }
 
                             ui.separator();
 
                             let entities: Vec<Entity> =
                                 world.query::<&Mesh>().iter().map(|(e, _)| e).collect();
-                            let mut clipper = imgui::ListClipper::new(entities.len() as i32)
-                                .begin(ui);
+                            let mut clipper =
+                                imgui::ListClipper::new(entities.len() as i32).begin(ui);
                             while clipper.step() {
                                 for i in clipper.display_start()..clipper.display_end() {
                                     let e = entities[i as usize];
@@ -314,7 +348,8 @@ fn main() {
                                         .get::<&Name>(e)
                                         .map(|n| n.0.clone())
                                         .unwrap_or_else(|_| format!("Entity {}", e.id()));
-                                    if ui.selectable_config(format!("{label}##{}", e.id()))
+                                    if ui
+                                        .selectable_config(format!("{label}##{}", e.id()))
                                         .selected(selected == Some(e))
                                         .build()
                                     {
@@ -346,8 +381,11 @@ fn main() {
                                     let mut axis = xf.rotation_axis.to_array();
                                     if ui.input_float3("Rot axis", &mut axis).build() {
                                         let v = Vec3::from_array(axis);
-                                        xf.rotation_axis =
-                                            if v.length_squared() > 1e-6 { v.normalize() } else { Vec3::Y };
+                                        xf.rotation_axis = if v.length_squared() > 1e-6 {
+                                            v.normalize()
+                                        } else {
+                                            Vec3::Y
+                                        };
                                     }
                                     ui.slider("Rot speed", -3.0, 3.0, &mut xf.rotation_speed);
                                     ui.slider("Scale", 0.1, 3.0, &mut xf.scale);
@@ -367,14 +405,25 @@ fn main() {
                                     if is_override {
                                         ui.text_disabled(format!("Override #{effective_idx}"));
                                         if let Some(mat) = current_mat {
-                                            let mut color     = mat.base_color;
+                                            let mut color = mat.base_color;
                                             let mut roughness = mat.roughness;
-                                            let mut metallic  = mat.metallic;
+                                            let mut metallic = mat.metallic;
 
                                             let mut changed = false;
-                                            changed |= ui.color_edit4("Base Color##mat", &mut color);
-                                            changed |= ui.slider("Roughness##mat", 0.0f32, 1.0f32, &mut roughness);
-                                            changed |= ui.slider("Metallic##mat",  0.0f32, 1.0f32, &mut metallic);
+                                            changed |=
+                                                ui.color_edit4("Base Color##mat", &mut color);
+                                            changed |= ui.slider(
+                                                "Roughness##mat",
+                                                0.0f32,
+                                                1.0f32,
+                                                &mut roughness,
+                                            );
+                                            changed |= ui.slider(
+                                                "Metallic##mat",
+                                                0.0f32,
+                                                1.0f32,
+                                                &mut metallic,
+                                            );
 
                                             if changed {
                                                 let updated = GpuMaterial {
@@ -383,7 +432,13 @@ fn main() {
                                                     metallic,
                                                     _pad: [0.0; 2],
                                                 };
-                                                unsafe { renderer.update_override_material(&gl, effective_idx, updated); }
+                                                unsafe {
+                                                    renderer.update_override_material(
+                                                        &gl,
+                                                        effective_idx,
+                                                        updated,
+                                                    );
+                                                }
                                             }
                                         }
                                         if ui.button("Reset to Default##mat") {
@@ -394,13 +449,19 @@ fn main() {
                                             ui.text_disabled(format!("Static #{effective_idx}"));
                                             let [r, g, b, _] = mat.base_color;
                                             ui.text(format!("Color   {r:.2}  {g:.2}  {b:.2}"));
-                                            ui.text(format!("Rough   {:.2}   Metal  {:.2}", mat.roughness, mat.metallic));
+                                            ui.text(format!(
+                                                "Rough   {:.2}   Metal  {:.2}",
+                                                mat.roughness, mat.metallic
+                                            ));
                                         }
                                         if ui.button("Override##mat") {
-                                            let base = renderer.material(effective_idx)
+                                            let base = renderer
+                                                .material(effective_idx)
                                                 .copied()
                                                 .unwrap_or(GpuMaterial::DEFAULT);
-                                            let new_idx = unsafe { renderer.add_override_material(&gl, base) };
+                                            let new_idx = unsafe {
+                                                renderer.add_override_material(&gl, base)
+                                            };
                                             let _ = world.insert(sel, (Material(new_idx),));
                                         }
                                     }
@@ -439,9 +500,18 @@ fn main() {
                             ui.text(format!("Entities     {}", stats.entities));
                             ui.text(format!("Batches      {}", stats.batches));
                             ui.separator();
-                            ui.text(format!("Triangles    {}", fmt_count(stats.primitives_submitted)));
-                            ui.text(format!("Vert inv     {}", fmt_count(stats.vertex_invocations)));
-                            ui.text(format!("Frag inv     {}", fmt_count(stats.fragment_invocations)));
+                            ui.text(format!(
+                                "Triangles    {}",
+                                fmt_count(stats.primitives_submitted)
+                            ));
+                            ui.text(format!(
+                                "Vert inv     {}",
+                                fmt_count(stats.vertex_invocations)
+                            ));
+                            ui.text(format!(
+                                "Frag inv     {}",
+                                fmt_count(stats.fragment_invocations)
+                            ));
                             ui.text(format!("GPU ms       {:.2}", stats.gpu_time_ms));
                         });
 
@@ -490,7 +560,10 @@ fn main() {
                             unsafe {
                                 let aspect = vw as f32 / vh as f32;
                                 let proj = Mat4::perspective_rh_gl(
-                                    45_f32.to_radians(), aspect, 0.1, 1000.0,
+                                    45_f32.to_radians(),
+                                    aspect,
+                                    0.1,
+                                    1000.0,
                                 );
                                 let view = camera.view_matrix();
                                 stats = renderer.render(&gl, &world, view, proj, elapsed, vw, vh);
@@ -516,8 +589,16 @@ fn main() {
                         if let Some(hzb) = renderer.hzb_texture() {
                             unsafe {
                                 gl.bind_texture(glow::TEXTURE_2D, Some(hzb));
-                                gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_BASE_LEVEL, hzb_mip);
-                                gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_MAX_LEVEL, hzb_mip);
+                                gl.tex_parameter_i32(
+                                    glow::TEXTURE_2D,
+                                    glow::TEXTURE_BASE_LEVEL,
+                                    hzb_mip,
+                                );
+                                gl.tex_parameter_i32(
+                                    glow::TEXTURE_2D,
+                                    glow::TEXTURE_MAX_LEVEL,
+                                    hzb_mip,
+                                );
                                 gl.bind_texture(glow::TEXTURE_2D, None);
                             }
                         }
@@ -532,8 +613,11 @@ fn main() {
                             unsafe {
                                 gl.bind_texture(glow::TEXTURE_2D, Some(hzb));
                                 gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_BASE_LEVEL, 0);
-                                gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_MAX_LEVEL,
-                                    (renderer.hzb_levels() as i32 - 1).max(0));
+                                gl.tex_parameter_i32(
+                                    glow::TEXTURE_2D,
+                                    glow::TEXTURE_MAX_LEVEL,
+                                    (renderer.hzb_levels() as i32 - 1).max(0),
+                                );
                                 gl.bind_texture(glow::TEXTURE_2D, None);
                             }
                         }

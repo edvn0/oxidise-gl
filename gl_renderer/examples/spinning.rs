@@ -4,9 +4,7 @@
 //!
 //! Run with: `cargo run -p gl_renderer --example spinning`
 
-use gl_renderer::{
-    create_gl_window, generate_cube, generate_sphere, Mesh, Renderer, Transform,
-};
+use gl_renderer::{create_gl_window, generate_cube, generate_sphere, Mesh, Renderer, Transform};
 
 use glam::{Mat4, Vec3};
 use glutin::prelude::*;
@@ -25,7 +23,14 @@ fn main() {
         1280,
         720,
     );
-    let gl_renderer::GlWindow { window, surface, context, gl, mdi_count, .. } = gl_window;
+    let gl_renderer::GlWindow {
+        window,
+        surface,
+        context,
+        gl,
+        mdi_count,
+        ..
+    } = gl_window;
 
     let mut renderer = unsafe { Renderer::new(&gl, mdi_count) };
 
@@ -39,28 +44,28 @@ fn main() {
     let mut world = hecs::World::new();
     world.spawn((
         Transform {
-            position:       Vec3::ZERO,
-            rotation_axis:  Vec3::new(1.0, 1.0, 0.0).normalize(),
+            position: Vec3::ZERO,
+            rotation_axis: Vec3::new(1.0, 1.0, 0.0).normalize(),
             rotation_speed: 0.7,
-            scale:          1.0,
+            scale: 1.0,
         },
         Mesh(cube),
     ));
     world.spawn((
         Transform {
-            position:       Vec3::new(2.5, 0.0, 0.0),
-            rotation_axis:  Vec3::Y,
+            position: Vec3::new(2.5, 0.0, 0.0),
+            rotation_axis: Vec3::Y,
             rotation_speed: 1.4,
-            scale:          0.6,
+            scale: 0.6,
         },
         Mesh(sphere),
     ));
     world.spawn((
         Transform {
-            position:       Vec3::new(-2.2, 0.8, -0.5),
-            rotation_axis:  Vec3::new(0.0, 1.0, 0.5).normalize(),
+            position: Vec3::new(-2.2, 0.8, -0.5),
+            rotation_axis: Vec3::new(0.0, 1.0, 0.5).normalize(),
             rotation_speed: 0.4,
-            scale:          0.7,
+            scale: 0.7,
         },
         Mesh(cube),
     ));
@@ -72,13 +77,19 @@ fn main() {
         .run(move |event, elwt| {
             elwt.set_control_flow(ControlFlow::Poll);
             match event {
-                Event::WindowEvent { event: WindowEvent::CloseRequested, .. } => {
+                Event::WindowEvent {
+                    event: WindowEvent::CloseRequested,
+                    ..
+                } => {
                     elwt.exit();
                 }
                 Event::LoopExiting => {
                     unsafe { renderer.cleanup(&gl) };
                 }
-                Event::WindowEvent { event: WindowEvent::Resized(size), .. } => {
+                Event::WindowEvent {
+                    event: WindowEvent::Resized(size),
+                    ..
+                } => {
                     current_size = size;
                     if size.width > 0 && size.height > 0 {
                         surface.resize(
@@ -92,11 +103,7 @@ fn main() {
                     let (w, h) = (current_size.width, current_size.height);
                     let aspect = w as f32 / h.max(1) as f32;
                     let proj = Mat4::perspective_rh_gl(45_f32.to_radians(), aspect, 0.1, 100.0);
-                    let view = Mat4::look_at_rh(
-                        Vec3::new(4.5, 3.0, 5.5),
-                        Vec3::ZERO,
-                        Vec3::Y,
-                    );
+                    let view = Mat4::look_at_rh(Vec3::new(4.5, 3.0, 5.5), Vec3::ZERO, Vec3::Y);
                     let elapsed = start.elapsed().as_secs_f32();
                     unsafe {
                         renderer.render(&gl, &world, view, proj, elapsed, w, h);

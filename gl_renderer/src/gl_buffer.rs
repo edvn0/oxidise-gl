@@ -88,11 +88,7 @@ impl<T: bytemuck::Pod> GlBuffer<T> {
         );
         let byte_offset = (element_offset * std::mem::size_of::<T>()) as i32;
         gl.bind_buffer(glow::ARRAY_BUFFER, Some(self.handle));
-        gl.buffer_sub_data_u8_slice(
-            glow::ARRAY_BUFFER,
-            byte_offset,
-            bytemuck::cast_slice(data),
-        );
+        gl.buffer_sub_data_u8_slice(glow::ARRAY_BUFFER, byte_offset, bytemuck::cast_slice(data));
         gl.bind_buffer(glow::ARRAY_BUFFER, None);
     }
 
@@ -102,7 +98,10 @@ impl<T: bytemuck::Pod> GlBuffer<T> {
     where
         F: FnOnce(&mut [T]),
     {
-        assert!(element_offset + count <= self.capacity, "mapped upload out of bounds");
+        assert!(
+            element_offset + count <= self.capacity,
+            "mapped upload out of bounds"
+        );
         let byte_offset = (element_offset * std::mem::size_of::<T>()) as i32;
         let byte_length = (count * std::mem::size_of::<T>()) as i32;
         gl.bind_buffer(glow::ARRAY_BUFFER, Some(self.handle));
@@ -113,8 +112,7 @@ impl<T: bytemuck::Pod> GlBuffer<T> {
             glow::MAP_WRITE_BIT | glow::MAP_INVALIDATE_RANGE_BIT,
         );
         assert!(!ptr.is_null(), "map_buffer_range returned null");
-        let slice =
-            std::slice::from_raw_parts_mut(ptr as *mut T, count);
+        let slice = std::slice::from_raw_parts_mut(ptr as *mut T, count);
         f(slice);
         gl.unmap_buffer(glow::ARRAY_BUFFER);
         gl.bind_buffer(glow::ARRAY_BUFFER, None);
@@ -130,7 +128,10 @@ impl<T: bytemuck::Pod> GlBuffer<T> {
     ) where
         F: FnOnce(&mut [T]),
     {
-        assert!(element_offset + count <= self.capacity, "mapped upload out of bounds");
+        assert!(
+            element_offset + count <= self.capacity,
+            "mapped upload out of bounds"
+        );
         let byte_offset = (element_offset * std::mem::size_of::<T>()) as i32;
         let byte_length = (count * std::mem::size_of::<T>()) as i32;
         gl.bind_buffer(glow::ARRAY_BUFFER, Some(self.handle));
@@ -151,7 +152,11 @@ impl<T: bytemuck::Pod> GlBuffer<T> {
 
     /// Bind as a Shader Storage Buffer at `binding_index`.
     pub unsafe fn bind_as_ssbo(&self, gl: &Context, binding_index: u32) {
-        gl.bind_buffer_base(glow::SHADER_STORAGE_BUFFER, binding_index, Some(self.handle));
+        gl.bind_buffer_base(
+            glow::SHADER_STORAGE_BUFFER,
+            binding_index,
+            Some(self.handle),
+        );
     }
 
     /// Bind as an Element Array Buffer (index buffer).
@@ -177,7 +182,10 @@ impl<T: bytemuck::Pod> GlBuffer<T> {
     /// Reallocate to `new_capacity` elements, preserving existing data via a GPU-side copy.
     /// The old GL buffer is deleted; `self` is updated in place.
     pub unsafe fn grow(&mut self, gl: &Context, new_capacity: usize, usage: BufferUsage) {
-        assert!(new_capacity > self.capacity, "grow: new_capacity must exceed current capacity");
+        assert!(
+            new_capacity > self.capacity,
+            "grow: new_capacity must exceed current capacity"
+        );
         let new_handle = gl.create_buffer().expect("failed to create GL buffer");
         let new_byte_size = (new_capacity * std::mem::size_of::<T>()) as i32;
         let old_byte_size = (self.capacity * std::mem::size_of::<T>()) as i32;
@@ -188,7 +196,13 @@ impl<T: bytemuck::Pod> GlBuffer<T> {
 
         gl.bind_buffer(glow::COPY_READ_BUFFER, Some(self.handle));
         gl.bind_buffer(glow::COPY_WRITE_BUFFER, Some(new_handle));
-        gl.copy_buffer_sub_data(glow::COPY_READ_BUFFER, glow::COPY_WRITE_BUFFER, 0, 0, old_byte_size);
+        gl.copy_buffer_sub_data(
+            glow::COPY_READ_BUFFER,
+            glow::COPY_WRITE_BUFFER,
+            0,
+            0,
+            old_byte_size,
+        );
         gl.bind_buffer(glow::COPY_READ_BUFFER, None);
         gl.bind_buffer(glow::COPY_WRITE_BUFFER, None);
 

@@ -42,40 +42,68 @@ pub struct EntityProxy {
 #[pymethods]
 impl EntityProxy {
     #[getter]
-    fn get_mesh(&self) -> &str { &self.mesh_name }
+    fn get_mesh(&self) -> &str {
+        &self.mesh_name
+    }
 
     #[getter]
-    fn get_name(&self) -> &str { &self.name }
+    fn get_name(&self) -> &str {
+        &self.name
+    }
     #[setter]
-    fn set_name(&mut self, v: String) { self.name = v; }
+    fn set_name(&mut self, v: String) {
+        self.name = v;
+    }
 
     #[getter]
-    fn get_position(&self) -> (f32, f32, f32) { self.position }
+    fn get_position(&self) -> (f32, f32, f32) {
+        self.position
+    }
     #[setter]
-    fn set_position(&mut self, v: (f32, f32, f32)) { self.position = v; }
+    fn set_position(&mut self, v: (f32, f32, f32)) {
+        self.position = v;
+    }
 
     #[getter]
-    fn get_rotation_axis(&self) -> (f32, f32, f32) { self.rotation_axis }
+    fn get_rotation_axis(&self) -> (f32, f32, f32) {
+        self.rotation_axis
+    }
     #[setter]
-    fn set_rotation_axis(&mut self, v: (f32, f32, f32)) { self.rotation_axis = v; }
+    fn set_rotation_axis(&mut self, v: (f32, f32, f32)) {
+        self.rotation_axis = v;
+    }
 
     #[getter]
-    fn get_rotation_speed(&self) -> f32 { self.rotation_speed }
+    fn get_rotation_speed(&self) -> f32 {
+        self.rotation_speed
+    }
     #[setter]
-    fn set_rotation_speed(&mut self, v: f32) { self.rotation_speed = v; }
+    fn set_rotation_speed(&mut self, v: f32) {
+        self.rotation_speed = v;
+    }
 
     #[getter]
-    fn get_scale(&self) -> f32 { self.scale }
+    fn get_scale(&self) -> f32 {
+        self.scale
+    }
     #[setter]
-    fn set_scale(&mut self, v: f32) { self.scale = v; }
+    fn set_scale(&mut self, v: f32) {
+        self.scale = v;
+    }
 
     #[getter]
-    fn get_script(&self) -> Option<&str> { self.script.as_deref() }
+    fn get_script(&self) -> Option<&str> {
+        self.script.as_deref()
+    }
     #[setter]
-    fn set_script(&mut self, v: Option<String>) { self.script = v; }
+    fn set_script(&mut self, v: Option<String>) {
+        self.script = v;
+    }
 
     /// Mark this entity for removal after `on_update` returns.
-    fn despawn(&mut self) { self.despawn_flag = true; }
+    fn despawn(&mut self) {
+        self.despawn_flag = true;
+    }
 
     fn __repr__(&self) -> String {
         format!("Entity(name={:?}, mesh={:?})", self.name, self.mesh_name)
@@ -110,17 +138,20 @@ impl SceneProxy {
         scale: Option<f32>,
         script: Option<String>,
     ) -> PyResult<Py<EntityProxy>> {
-        let proxy = Py::new(py, EntityProxy {
-            entity: None,
-            mesh_name: mesh,
-            name: name.unwrap_or_default(),
-            position: position.unwrap_or((0.0, 0.0, 0.0)),
-            rotation_axis: rotation_axis.unwrap_or((0.0, 1.0, 0.0)),
-            rotation_speed: rotation_speed.unwrap_or(0.5),
-            scale: scale.unwrap_or(1.0),
-            script,
-            despawn_flag: false,
-        })?;
+        let proxy = Py::new(
+            py,
+            EntityProxy {
+                entity: None,
+                mesh_name: mesh,
+                name: name.unwrap_or_default(),
+                position: position.unwrap_or((0.0, 0.0, 0.0)),
+                rotation_axis: rotation_axis.unwrap_or((0.0, 1.0, 0.0)),
+                rotation_speed: rotation_speed.unwrap_or(0.5),
+                scale: scale.unwrap_or(1.0),
+                script,
+                despawn_flag: false,
+            },
+        )?;
         self.spawns.push(proxy.clone_ref(py));
         Ok(proxy)
     }
@@ -202,7 +233,10 @@ impl ScriptEntry {
 
         let code = match std::fs::read_to_string(path) {
             Ok(c) => c,
-            Err(e) => { eprintln!("[script] {}: {e}", path.display()); return; }
+            Err(e) => {
+                eprintln!("[script] {}: {e}", path.display());
+                return;
+            }
         };
         let filename = path.to_string_lossy();
         match PyModule::from_code_bound(py, &code, &filename, "scene") {
@@ -211,9 +245,15 @@ impl ScriptEntry {
                     eprintln!("[script] loaded {filename}");
                     self.on_update = Some(f.unbind());
                 }
-                Err(e) => { e.print(py); self.on_update = None; }
+                Err(e) => {
+                    e.print(py);
+                    self.on_update = None;
+                }
             },
-            Err(e) => { e.print(py); self.on_update = None; }
+            Err(e) => {
+                e.print(py);
+                self.on_update = None;
+            }
         }
     }
 }
@@ -280,28 +320,32 @@ impl ScriptHost {
                     .query::<(&Transform, &Mesh, Option<&Name>, Option<&Script>)>()
                     .iter()
                 {
-                    let mesh_name = self.mesh_reverse
+                    let mesh_name = self
+                        .mesh_reverse
                         .get(&mesh.0.vertex_offset)
                         .cloned()
                         .unwrap_or_default();
                     let idx = v.len();
                     entity_index.insert(entity, idx);
                     v.push(
-                        Py::new(py, EntityProxy {
-                            entity: Some(entity),
-                            mesh_name,
-                            name: name.map(|n| n.0.clone()).unwrap_or_default(),
-                            position: (xf.position.x, xf.position.y, xf.position.z),
-                            rotation_axis: (
-                                xf.rotation_axis.x,
-                                xf.rotation_axis.y,
-                                xf.rotation_axis.z,
-                            ),
-                            rotation_speed: xf.rotation_speed,
-                            scale: xf.scale,
-                            script: script.map(|s| s.0.clone()),
-                            despawn_flag: false,
-                        })
+                        Py::new(
+                            py,
+                            EntityProxy {
+                                entity: Some(entity),
+                                mesh_name,
+                                name: name.map(|n| n.0.clone()).unwrap_or_default(),
+                                position: (xf.position.x, xf.position.y, xf.position.z),
+                                rotation_axis: (
+                                    xf.rotation_axis.x,
+                                    xf.rotation_axis.y,
+                                    xf.rotation_axis.z,
+                                ),
+                                rotation_speed: xf.rotation_speed,
+                                scale: xf.scale,
+                                script: script.map(|s| s.0.clone()),
+                                despawn_flag: false,
+                            },
+                        )
                         .expect("EntityProxy alloc"),
                     );
                 }
@@ -332,7 +376,10 @@ impl ScriptHost {
                     entry.reload_if_changed(py, path);
                     let on_update = entry.on_update.as_ref()?.clone_ref(py);
                     let proxy_idx = *entity_index.get(entity)?;
-                    Some(DispatchItem { proxy_idx, on_update })
+                    Some(DispatchItem {
+                        proxy_idx,
+                        on_update,
+                    })
                 })
                 .collect();
 
@@ -345,11 +392,14 @@ impl ScriptHost {
             // &mut self methods (e.g. spawn) are exclusive. Distinct EntityProxy
             // objects are independent locks, so parallel on_update calls that
             // each touch only their own entity proxy proceed without contention.
-            let scene = Py::new(py, SceneProxy {
-                entities: proxies.iter().map(|e| e.clone_ref(py)).collect(),
-                spawns: Vec::new(),
-                mesh_names,
-            })
+            let scene = Py::new(
+                py,
+                SceneProxy {
+                    entities: proxies.iter().map(|e| e.clone_ref(py)).collect(),
+                    spawns: Vec::new(),
+                    mesh_names,
+                },
+            )
             .expect("SceneProxy alloc");
 
             // ── Phase 2b: parallel dispatch ───────────────────────────────────
@@ -367,10 +417,10 @@ impl ScriptHost {
                         for d in chunk {
                             let ep = proxies[d.proxy_idx].clone_ref(py2);
                             let scene_ref = scene.clone_ref(py2);
-                            if let Err(e) = d.on_update.call1(
-                                py2,
-                                (ep.bind(py2), scene_ref.bind(py2), elapsed, dt),
-                            ) {
+                            if let Err(e) = d
+                                .on_update
+                                .call1(py2, (ep.bind(py2), scene_ref.bind(py2), elapsed, dt))
+                            {
                                 e.print(py2);
                             }
                         }
@@ -396,7 +446,10 @@ impl ScriptHost {
                 }
 
                 let needs_name_insert = match world.get::<&mut Name>(entity) {
-                    Ok(mut n) => { n.0.clone_from(&proxy.name); false }
+                    Ok(mut n) => {
+                        n.0.clone_from(&proxy.name);
+                        false
+                    }
                     Err(_) => !proxy.name.is_empty(),
                 };
                 if needs_name_insert {
@@ -419,8 +472,12 @@ impl ScriptHost {
             let scene_ref = scene.borrow(py);
             for spawn_py in &scene_ref.spawns {
                 let proxy = spawn_py.borrow(py);
-                if proxy.despawn_flag { continue; }
-                let Some(&alloc) = self.mesh_map.get(&proxy.mesh_name) else { continue };
+                if proxy.despawn_flag {
+                    continue;
+                }
+                let Some(&alloc) = self.mesh_map.get(&proxy.mesh_name) else {
+                    continue;
+                };
                 let entity = world.spawn((
                     Transform {
                         position: Vec3::from(proxy.position),
@@ -442,7 +499,11 @@ impl ScriptHost {
 }
 
 fn normalize_or_up(v: Vec3) -> Vec3 {
-    if v.length_squared() > 1e-6 { v.normalize() } else { Vec3::Y }
+    if v.length_squared() > 1e-6 {
+        v.normalize()
+    } else {
+        Vec3::Y
+    }
 }
 
 // ── Built-in Python module ────────────────────────────────────────────────────
